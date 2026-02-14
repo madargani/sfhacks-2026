@@ -38,7 +38,8 @@ tmp/
 temp/
 
 # MongoDB
-data/
+data/db/
+data/mongodb/
 *.mongodb
 
 # IDE
