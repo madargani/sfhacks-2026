@@ -27,6 +27,14 @@ export const Colors = {
   },
 };
 
+export const brandColors = {
+  primary: '#3eb549',
+  dark: '#00310d',
+  black: '#000000',
+  beige: '#b3b395',
+  white: '#ffffff',
+};
+
 export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */
