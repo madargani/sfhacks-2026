@@ -15,7 +15,7 @@ const fixIndexes = async (): Promise<void> => {
     console.log('Connected to MongoDB');
 
     // Drop the problematic indexes
-    const db = mongoose.connection.db;
+    const db = mongoose.connection.db!;
     
     try {
       await db.collection('riderequests').dropIndex('fromLocation_2dsphere');
