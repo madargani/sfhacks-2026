@@ -15,7 +15,7 @@ export const mockRides: UpcomingRide[] = [
     to: 'Downtown SF',
     dateTime: 'Today, 5:30 PM',
     type: 'offering',
-    driverName: 'Alex Chen',
+    driverName: 'Isaiah Alvarez',
     passengers: 3,
   },
   {
@@ -32,7 +32,7 @@ export const mockRides: UpcomingRide[] = [
     to: 'Oakland',
     dateTime: 'Fri, 4:00 PM',
     type: 'offering',
-    driverName: 'Jordan Smith',
+    driverName: 'Hayden Ancheta',
     passengers: 2,
   },
 ];
