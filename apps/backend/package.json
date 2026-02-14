@@ -1,13 +1,14 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "main": "dist/server.js",
+  "main": "dist/server.ts",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/server.ts",
     "lint": "eslint . --ext .ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:db": "ts-node-dev --transpile-only src/scripts/test-db.ts"
   },
   "dependencies": {
     "express": "^5.2.0",
@@ -15,6 +16,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "helmet": "^8.0.0",
+    "socket.io": "^4.8.0",
     "@evergreen/shared-types": "*"
   },
   "devDependencies": {

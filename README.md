@@ -48,13 +48,13 @@ npm install
 
 ### 2. Environment Setup
 
-Create `.env` files in each app directory:
+Create `.env` files for each app:
 
 **apps/backend/.env:**
 ```env
 PORT=3000
 MONGODB_URI=your_mongodb_atlas_uri
-JWT_SECRET=your_jwt_secret
+CORS_ORIGIN=*
 ```
 
 **apps/mobile/.env:**
