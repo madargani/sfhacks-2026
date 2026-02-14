@@ -30,7 +30,7 @@ export const mockNearbyOfferings: NearbyOfferingRide[] = [
     milesAway: 2.3,
     totalSeats: 5,
     availableSeats: 3,
-    driverName: "Alex Chen",
+    driverName: "Isaiah Alvarez",
     departureTime: "5:30 PM",
   },
   {
@@ -40,7 +40,7 @@ export const mockNearbyOfferings: NearbyOfferingRide[] = [
     milesAway: 4.1,
     totalSeats: 7,
     availableSeats: 4,
-    driverName: "Jordan Smith",
+    driverName: "Hayden Ancheta",
     departureTime: "6:00 PM",
   },
   {
@@ -50,7 +50,7 @@ export const mockNearbyOfferings: NearbyOfferingRide[] = [
     milesAway: 0.8,
     totalSeats: 6,
     availableSeats: 2,
-    driverName: "Sam Rivera",
+    driverName: "Antonio Aramburu",
     departureTime: "4:45 PM",
   },
   {
@@ -60,7 +60,7 @@ export const mockNearbyOfferings: NearbyOfferingRide[] = [
     milesAway: 5.2,
     totalSeats: 8,
     availableSeats: 5,
-    driverName: "Casey Nguyen",
+    driverName: "Julian Barajas",
     departureTime: "5:15 PM",
   },
 ];
@@ -71,7 +71,7 @@ export const mockNearbyRequests: NearbyRequestingRide[] = [
     destination: "SF State",
     origin: "Mission District",
     milesAway: 1.5,
-    requesterName: "Taylor Kim",
+    requesterName: "Tanner Bartonico",
     requestedFor: "Tomorrow 8:00 AM",
   },
   {
@@ -79,7 +79,7 @@ export const mockNearbyRequests: NearbyRequestingRide[] = [
     destination: "Downtown SF",
     origin: "Sunset",
     milesAway: 3.2,
-    requesterName: "Morgan Lee",
+    requesterName: "Junior Bojorquez",
     requestedFor: "Today 6:00 PM",
   },
   {
@@ -87,7 +87,7 @@ export const mockNearbyRequests: NearbyRequestingRide[] = [
     destination: "Oakland",
     origin: "Marina",
     milesAway: 6.0,
-    requesterName: "Jordan Blake",
+    requesterName: "Illia Borshchenko",
     requestedFor: "Fri 4:00 PM",
   },
   {
@@ -95,7 +95,7 @@ export const mockNearbyRequests: NearbyRequestingRide[] = [
     destination: "SJSU",
     origin: "SOMA",
     milesAway: 0.5,
-    requesterName: "Skyler Reed",
+    requesterName: "Kyle Botelho",
     requestedFor: "Today 5:00 PM",
   },
 ];

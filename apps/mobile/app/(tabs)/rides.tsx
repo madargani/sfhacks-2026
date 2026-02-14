@@ -223,12 +223,29 @@ function OfferingCard({ ride }: { ride: NearbyOfferingRide }) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.destination}>{ride.destination}</Text>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
+        <View style={styles.leavingBlock}>
+          <Text style={styles.leavingLabel}>Leaving</Text>
+          <Text style={styles.leavingTime}>{ride.departureTime}</Text>
+        </View>
+      </View>
+      <View style={styles.rideRoute}>
+        <View style={styles.routePoint}>
+          <View style={[styles.dot, { backgroundColor: brandColors.primary }]} />
+          <Text style={styles.locationText} numberOfLines={1}>
+            {ride.origin ?? "—"}
+          </Text>
+        </View>
+        <View style={styles.routeLine} />
+        <View style={styles.routePoint}>
+          <View style={[styles.dot, { backgroundColor: brandColors.dark }]} />
+          <Text style={styles.locationText} numberOfLines={1}>
+            {ride.destination}
+          </Text>
+        </View>
       </View>
       <View style={styles.cardMeta}>
         <Text style={styles.driverText}>{ride.driverName}</Text>
-        <Text style={styles.timeText}>{ride.departureTime}</Text>
       </View>
       <View style={styles.seatsRow}>
         <Text style={styles.seatsLabel}>
@@ -248,12 +265,29 @@ function RequestingCard({ ride }: { ride: NearbyRequestingRide }) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.destination}>{ride.destination}</Text>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
+        <View style={styles.leavingBlock}>
+          <Text style={styles.leavingLabel}>Leaving</Text>
+          <Text style={styles.leavingTime}>{ride.requestedFor}</Text>
+        </View>
+      </View>
+      <View style={styles.rideRoute}>
+        <View style={styles.routePoint}>
+          <View style={[styles.dot, { backgroundColor: brandColors.primary }]} />
+          <Text style={styles.locationText} numberOfLines={1}>
+            {ride.origin ?? "—"}
+          </Text>
+        </View>
+        <View style={styles.routeLine} />
+        <View style={styles.routePoint}>
+          <View style={[styles.dot, { backgroundColor: brandColors.dark }]} />
+          <Text style={styles.locationText} numberOfLines={1}>
+            {ride.destination}
+          </Text>
+        </View>
       </View>
       <View style={styles.cardMeta}>
         <Text style={styles.requesterText}>{ride.requesterName}</Text>
-        <Text style={styles.timeText}>{ride.requestedFor}</Text>
       </View>
     </View>
   );
@@ -350,18 +384,50 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 8,
   },
-  destination: {
-    fontSize: 17,
+  leavingBlock: {
+    alignItems: "flex-end",
+  },
+  leavingLabel: {
+    fontSize: 12,
+    color: brandColors.beige,
+    marginBottom: 2,
+  },
+  leavingTime: {
+    fontSize: 14,
     fontWeight: "600",
-    color: brandColors.black,
-    flex: 1,
+    color: brandColors.dark,
   },
   milesAway: {
     fontSize: 14,
     color: brandColors.dark,
+  },
+  rideRoute: {
+    marginBottom: 12,
+  },
+  routePoint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  routeLine: {
+    width: 2,
+    height: 16,
+    backgroundColor: brandColors.beige,
+    marginLeft: 3,
+    marginVertical: 4,
+  },
+  locationText: {
+    fontSize: 15,
+    color: brandColors.black,
+    flex: 1,
   },
   cardMeta: {
     flexDirection: "row",
@@ -375,10 +441,6 @@ const styles = StyleSheet.create({
   requesterText: {
     fontSize: 14,
     color: brandColors.dark,
-  },
-  timeText: {
-    fontSize: 14,
-    color: brandColors.beige,
   },
   seatsRow: {
     marginTop: 4,
