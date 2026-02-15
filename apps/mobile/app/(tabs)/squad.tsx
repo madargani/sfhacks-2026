@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -11,17 +11,71 @@ import {
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { brandColors } from "@/constants/theme";
+import { getApiData } from "@/services/api";
 import {
   mockSquadMembers,
   mockPendingRequests,
   type SquadMember,
   type PendingSquadRequest,
 } from "@/data/mock/squad";
+import { type User } from "@evergreen/shared-types";
 
 type TabId = "squad" | "pending";
 
 export default function SquadScreen() {
   const [activeTab, setActiveTab] = useState<TabId>("squad");
+  const [inviteCandidates, setInviteCandidates] = useState<User[]>([]);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isLoadingInvites, setIsLoadingInvites] = useState(false);
+  const [showInviteList, setShowInviteList] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadInviteCandidates = async () => {
+      setIsLoadingInvites(true);
+      setInviteError(null);
+
+      try {
+        const users = await getApiData<User[]>("/api/v1/users");
+        if (isMounted) {
+          setInviteCandidates(users);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setInviteError(
+            error instanceof Error ? error.message : "Unable to load users"
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingInvites(false);
+        }
+      }
+    };
+
+    loadInviteCandidates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const inviteSuggestions = useMemo(() => {
+    const existingSquadNames = new Set(
+      mockSquadMembers.map((member) => member.name.toLowerCase())
+    );
+    const pendingNames = new Set(
+      mockPendingRequests.map((request) => request.name.toLowerCase())
+    );
+
+    return inviteCandidates.filter(
+      (user) =>
+        user.name &&
+        !existingSquadNames.has(user.name.toLowerCase()) &&
+        !pendingNames.has(user.name.toLowerCase())
+    );
+  }, [inviteCandidates]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -130,6 +184,34 @@ export default function SquadScreen() {
                   ))}
                 </View>
               )}
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Invite suggestions</Text>
+                {isLoadingInvites ? (
+                  <Text style={styles.sectionSubtext}>Loading people...</Text>
+                ) : inviteError ? (
+                  <Text style={styles.errorText}>{inviteError}</Text>
+                ) : showInviteList ? (
+                  <View style={styles.list}>
+                    {inviteSuggestions.length === 0 ? (
+                      <Text style={styles.sectionSubtext}>
+                        No one new to invite right now.
+                      </Text>
+                    ) : (
+                      inviteSuggestions.map((user) => (
+                        <InviteSuggestionCard
+                          key={user._id?.toString() ?? user.email}
+                          user={user}
+                        />
+                      ))
+                    )}
+                  </View>
+                ) : (
+                  <Text style={styles.sectionSubtext}>
+                    Tap "Invite to squad" to see who you can invite.
+                  </Text>
+                )}
+              </View>
             </View>
           ) : (
             <View style={styles.tabContent}>
@@ -160,8 +242,17 @@ export default function SquadScreen() {
 
         {/* Invite button */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.inviteButton} activeOpacity={0.8}>
-            <Text style={styles.inviteButtonText}>Invite to squad</Text>
+          <TouchableOpacity
+            style={styles.inviteButton}
+            activeOpacity={0.8}
+            onPress={() => {
+              setActiveTab("squad");
+              setShowInviteList((prev) => !prev);
+            }}
+          >
+            <Text style={styles.inviteButtonText}>
+              {showInviteList ? "Hide invite list" : "Invite to squad"}
+            </Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -223,6 +314,34 @@ function PendingRequestCard({ request }: { request: PendingSquadRequest }) {
             </View>
           )}
         </View>
+      </View>
+    </View>
+  );
+}
+
+function InviteSuggestionCard({ user }: { user: User }) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardRow}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {user.name
+              .split(" ")
+              .map((n) => n[0])
+              .join("")}
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
+          <Text style={styles.cardName}>{user.name}</Text>
+          <Text style={styles.cardMeta}>{user.email}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.inviteAction}
+          activeOpacity={0.8}
+          onPress={() => {}}
+        >
+          <Text style={styles.inviteActionText}>Invite</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -309,6 +428,23 @@ const styles = StyleSheet.create({
   list: {
     gap: 12,
   },
+  section: {
+    marginTop: 24,
+    gap: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: brandColors.black,
+  },
+  sectionSubtext: {
+    fontSize: 14,
+    color: brandColors.dark,
+  },
+  errorText: {
+    fontSize: 14,
+    color: brandColors.primary,
+  },
   card: {
     backgroundColor: brandColors.white,
     borderRadius: 12,
@@ -373,6 +509,17 @@ const styles = StyleSheet.create({
   },
   declineButtonText: {
     color: brandColors.dark,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  inviteAction: {
+    backgroundColor: brandColors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  inviteActionText: {
+    color: brandColors.white,
     fontSize: 14,
     fontWeight: "600",
   },
