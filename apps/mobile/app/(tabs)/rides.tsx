@@ -24,7 +24,8 @@ import {
   type NearbyRequestingRide,
 } from "@/data/mock/nearby-rides";
 import { OfferRideModal } from "@/components/offer-ride-modal";
-import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
+import { RequestRideModal } from "@/components/request-ride-modal";
+import { CreateRideOffer, CreateRideRequest, RideOffer } from "@evergreen/shared-types";
 import { getApiData } from "@/services/api";
 import {
   getMockJoinedRideIds,
@@ -89,15 +90,58 @@ const convertRideOfferToNearby = (offer: RideOffer): NearbyOfferingRide => {
   };
 };
 
+// Helper function to convert RideRequest to NearbyRequestingRide
+const convertRideRequestToNearby = (request: any): NearbyRequestingRide => {
+  const requestDate = new Date(request.dateTime);
+  const now = new Date();
+  
+  // Format requested time
+  let requestedFor: string;
+  const isToday = requestDate.toDateString() === now.toDateString();
+  const isTomorrow = 
+    new Date(now.getTime() + 24 * 60 * 60 * 1000).toDateString() === 
+    requestDate.toDateString();
+  
+  if (isToday) {
+    requestedFor = `Today ${requestDate.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    })}`;
+  } else if (isTomorrow) {
+    requestedFor = `Tomorrow ${requestDate.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    })}`;
+  } else {
+    requestedFor = requestDate.toLocaleDateString('en-US', {
+      weekday: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  return {
+    id: request._id?.toString() || '',
+    destination: request.toLocation.address,
+    origin: request.fromLocation.address,
+    milesAway: 0, // TODO: Calculate distance from user's location
+    requesterName: 'Requester', // TODO: Populate from user data
+    requestedFor,
+  };
+};
+
 export default function RidesScreen() {
   const [activeTab, setActiveTab] = useState<TabId>("offering");
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
+  const [rideRequests, setRideRequests] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
     getMockJoinedRideIds()
   );
   const [editingRideId, setEditingRideId] = useState<string | null>(null);
+  const [editingType, setEditingType] = useState<"offer" | "request" | null>(null);
   const [editDateTime, setEditDateTime] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -112,19 +156,21 @@ export default function RidesScreen() {
   const { schedule } = useRafScrollScheduler();
   const currentUserId = "current-user-id";
 
-  // Fetch ride offers from backend on mount
+  // Fetch ride offers and requests from backend on mount
   useEffect(() => {
     fetchRideOffers();
+    fetchRideRequests();
   }, []);
 
   useEffect(() => {
     return subscribeToMockJoinedRides(setMockJoinedIds);
   }, []);
 
-  // Refresh ride offers when screen is focused (e.g., after creating a ride on home screen)
+  // Refresh ride offers and requests when screen is focused (e.g., after creating a ride on home screen)
   useFocusEffect(
     useCallback(() => {
       fetchRideOffers();
+      fetchRideRequests();
     }, [])
   );
 
@@ -207,6 +253,15 @@ export default function RidesScreen() {
     }
   };
 
+  const fetchRideRequests = async () => {
+    try {
+      const requests = await getApiData<any[]>("/api/v1/rides/requests");
+      setRideRequests(requests);
+    } catch (error) {
+      console.error("Error fetching ride requests:", error);
+    }
+  };
+
   const handleDeleteRide = async (rideId: string) => {
     try {
       const response = await fetch(
@@ -257,6 +312,88 @@ export default function RidesScreen() {
     }
   };
 
+  const handleCreateRideRequest = async (rideRequest: CreateRideRequest) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/requests`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(rideRequest),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to create ride request");
+      }
+
+      // Close the modal and refresh the requests list
+      setShowRequestModal(false);
+      await fetchRideRequests();
+    } catch (error) {
+      console.error("Error creating ride request:", error);
+      throw error;
+    }
+  };
+
+  const handleDeleteRideRequest = async (requestId: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/requests/${requestId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete ride request");
+      }
+
+      // Refresh the ride requests list
+      await fetchRideRequests();
+    } catch (error) {
+      console.error("Error deleting ride request:", error);
+      alert("Failed to delete ride request");
+    }
+  };
+
+  const handleUpdateRideRequest = async (requestId: string, overrideDate?: Date) => {
+    const nextDateTime = overrideDate ?? editDateTime;
+    if (!nextDateTime) return;
+
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/requests/${requestId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            dateTime: nextDateTime.toISOString(),
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update ride request");
+      }
+
+      setEditingRideId(null);
+      setEditingType(null);
+      setEditDateTime(null);
+      await fetchRideRequests();
+    } catch (error) {
+      console.error("Error updating ride request:", error);
+      alert("Failed to update ride request");
+    }
+  };
+
   const handleUpdateRideOffer = async (overrideDate?: Date) => {
     const nextDateTime = overrideDate ?? editDateTime;
     if (!editingRideId || !nextDateTime) return;
@@ -280,6 +417,7 @@ export default function RidesScreen() {
       }
 
       setEditingRideId(null);
+      setEditingType(null);
       setEditDateTime(null);
       await fetchRideOffers();
     } catch (error) {
@@ -368,16 +506,21 @@ export default function RidesScreen() {
             />
           </View>
 
-          {/* Offer Ride Button */}
+          {/* Offer/Request Ride Button */}
           <TouchableOpacity
             style={styles.offerButton}
             onPress={() => {
-              console.log("Offer ride button pressed!");
-              setShowOfferModal(true);
+              if (activeTab === "offering") {
+                setShowOfferModal(true);
+              } else {
+                setShowRequestModal(true);
+              }
             }}
             activeOpacity={0.8}
           >
-            <Text style={styles.offerButtonText}>+ Offer a Ride</Text>
+            <Text style={styles.offerButtonText}>
+              {activeTab === "offering" ? "+ Offer a Ride" : "+ Request a Ride"}
+            </Text>
           </TouchableOpacity>
 
           {/* Tabs */}
@@ -439,7 +582,7 @@ export default function RidesScreen() {
                     activeTab === "requesting" && styles.tabBadgeTextActive,
                   ]}
                 >
-                  {mockNearbyRequests.length}
+                  {rideRequests.length + mockNearbyRequests.length}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -493,6 +636,7 @@ export default function RidesScreen() {
                             ? () => {
                                 const nextDate = new Date(offer.dateTime);
                                 setEditingRideId(rideKey);
+                                setEditingType("offer");
                                 setEditDateTime(nextDate);
                                 if (Platform.OS === "web") {
                                   syncWebPartsFromDate(nextDate);
@@ -526,7 +670,7 @@ export default function RidesScreen() {
             </View>
           ) : (
             <View style={styles.tabContent}>
-              {mockNearbyRequests.length === 0 ? (
+              {rideRequests.length === 0 && mockNearbyRequests.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText}>No nearby requests</Text>
                   <Text style={styles.emptySubtext}>
@@ -535,6 +679,36 @@ export default function RidesScreen() {
                 </View>
               ) : (
                 <View style={styles.list}>
+                  {rideRequests.map((ride) => {
+                    const requestKey = ride._id?.toString() || "";
+                    const isOwner = ride.userId === currentUserId;
+                    return (
+                      <RequestingCard 
+                        key={`backend-${requestKey}`}
+                        ride={convertRideRequestToNearby(ride)} 
+                        requestId={requestKey}
+                        onEdit={
+                          isOwner
+                            ? () => {
+                                const nextDate = new Date(ride.dateTime);
+                                setEditingRideId(requestKey);
+                                setEditingType("request");
+                                setEditDateTime(nextDate);
+                                if (Platform.OS === "web") {
+                                  syncWebPartsFromDate(nextDate);
+                                }
+                                setShowDatePicker(true);
+                              }
+                            : undefined
+                        }
+                        onDelete={
+                          isOwner
+                            ? () => handleDeleteRideRequest(requestKey)
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
                   {mockNearbyRequests.map((ride) => (
                     <RequestingCard key={ride.id} ride={ride} />
                   ))}
@@ -557,6 +731,14 @@ export default function RidesScreen() {
         visible={showOfferModal}
         onClose={() => setShowOfferModal(false)}
         onSubmit={handleCreateRideOffer}
+        userId="current-user-id" // TODO: Replace with actual logged-in user ID
+      />
+
+      {/* Request Ride Modal */}
+      <RequestRideModal
+        visible={showRequestModal}
+        onClose={() => setShowRequestModal(false)}
+        onSubmit={handleCreateRideRequest}
         userId="current-user-id" // TODO: Replace with actual logged-in user ID
       />
 
@@ -593,9 +775,17 @@ export default function RidesScreen() {
                 updatedDateTime.setHours(selectedTime.getHours());
                 updatedDateTime.setMinutes(selectedTime.getMinutes());
                 setEditDateTime(updatedDateTime);
-                handleUpdateRideOffer(updatedDateTime);
+                if (editingType === "request" && editingRideId) {
+                  handleUpdateRideRequest(editingRideId, updatedDateTime);
+                } else {
+                  handleUpdateRideOffer(updatedDateTime);
+                }
               } else {
-                handleUpdateRideOffer();
+                if (editingType === "request" && editingRideId) {
+                  handleUpdateRideRequest(editingRideId);
+                } else {
+                  handleUpdateRideOffer();
+                }
               }
               setShowTimePicker(false);
             }}
@@ -834,9 +1024,17 @@ export default function RidesScreen() {
                         if (editDateTime) {
                           const nextDate = createDateTimeFromWebParts(editDateTime);
                           setEditDateTime(nextDate);
-                          handleUpdateRideOffer(nextDate);
+                          if (editingType === "request" && editingRideId) {
+                            handleUpdateRideRequest(editingRideId, nextDate);
+                          } else {
+                            handleUpdateRideOffer(nextDate);
+                          }
                         } else {
-                          handleUpdateRideOffer();
+                          if (editingType === "request" && editingRideId) {
+                            handleUpdateRideRequest(editingRideId);
+                          } else {
+                            handleUpdateRideOffer();
+                          }
                         }
                         setShowDatePicker(false);
                         setShowTimePicker(false);
@@ -1009,15 +1207,43 @@ function OfferingCard({
   );
 }
 
-function RequestingCard({ ride }: { ride: NearbyRequestingRide }) {
+function RequestingCard({ 
+  ride,
+  requestId,
+  onEdit,
+  onDelete,
+}: { 
+  ride: NearbyRequestingRide;
+  requestId?: string;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  const isOwnerRequest = !!onEdit || !!onDelete;
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
-        <View style={styles.leavingBlock}>
-          <Text style={styles.leavingLabel}>Leaving</Text>
-          <Text style={styles.leavingTime}>{ride.requestedFor}</Text>
-        </View>
+        {isOwnerRequest && (
+          <View style={styles.cardHeaderButtons}>
+            {onEdit && (
+              <TouchableOpacity 
+                onPress={onEdit}
+                style={styles.editButton}
+              >
+                <Text style={styles.editButtonText}>✎</Text>
+              </TouchableOpacity>
+            )}
+            {onDelete && (
+              <TouchableOpacity 
+                onPress={onDelete}
+                style={styles.deleteButton}
+              >
+                <Text style={styles.deleteButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
       <View style={styles.rideRoute}>
         <View style={styles.routePoint}>
@@ -1036,6 +1262,10 @@ function RequestingCard({ ride }: { ride: NearbyRequestingRide }) {
       </View>
       <View style={styles.cardMeta}>
         <Text style={styles.requesterText}>{ride.requesterName}</Text>
+      </View>
+      <View style={styles.leavingBlock}>
+        <Text style={styles.leavingLabel}>Requested</Text>
+        <Text style={styles.leavingTime}>{ride.requestedFor}</Text>
       </View>
     </View>
   );
@@ -1407,4 +1637,5 @@ const styles = StyleSheet.create({
   webPickerButtonGroup: {
     flexDirection: "row",
     gap: 10,
-  },});
+  },
+});

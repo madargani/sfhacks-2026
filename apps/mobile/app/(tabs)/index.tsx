@@ -16,7 +16,8 @@ import { mockCarbonSaved } from "@/data/mock/rides";
 import { mockNearbyOfferings } from "@/data/mock/nearby-rides";
 import { brandColors } from "@/constants/theme";
 import { OfferRideModal } from "@/components/offer-ride-modal";
-import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
+import { RequestRideModal } from "@/components/request-ride-modal";
+import { CreateRideOffer, CreateRideRequest, RideOffer } from "@evergreen/shared-types";
 import { getApiData } from "@/services/api";
 import {
   getMockJoinedRideIds,
@@ -38,6 +39,7 @@ type RideOfferWithJoin = RideOffer & { joinedUserIds?: string[] };
 
 export default function HomeScreen() {
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
@@ -138,8 +140,33 @@ export default function HomeScreen() {
       }
 
       setShowOfferModal(false);
+      await fetchRideOffers();
     } catch (error) {
       console.error("Error creating ride offer:", error);
+      throw error;
+    }
+  };
+
+  const handleCreateRideRequest = async (rideRequest: CreateRideRequest) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/requests`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(rideRequest),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to create ride request");
+      }
+
+      setShowRequestModal(false);
+    } catch (error) {
+      console.error("Error creating ride request:", error);
       throw error;
     }
   };
@@ -212,7 +239,11 @@ export default function HomeScreen() {
           >
             <Text style={styles.offerButtonText}>Offer a Ride</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.requestButton} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.requestButton} 
+            activeOpacity={0.8}
+            onPress={() => setShowRequestModal(true)}
+          >
             <Text style={styles.requestButtonText}>Request a Ride</Text>
           </TouchableOpacity>
         </View>
@@ -223,6 +254,14 @@ export default function HomeScreen() {
         visible={showOfferModal}
         onClose={() => setShowOfferModal(false)}
         onSubmit={handleCreateRideOffer}
+        userId="current-user-id" // TODO: Replace with actual logged-in user ID
+      />
+
+      {/* Request Ride Modal */}
+      <RequestRideModal
+        visible={showRequestModal}
+        onClose={() => setShowRequestModal(false)}
+        onSubmit={handleCreateRideRequest}
         userId="current-user-id" // TODO: Replace with actual logged-in user ID
       />
     </SafeAreaView>
