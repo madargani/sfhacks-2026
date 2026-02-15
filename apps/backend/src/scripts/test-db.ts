@@ -84,7 +84,6 @@ const testDatabase = async (): Promise<void> => {
       },
       dateTime: new Date(),
       availableSeats: 3,
-      price: 15.5,
       status: "pending",
     });
     testOfferId = testOffer._id.toString();

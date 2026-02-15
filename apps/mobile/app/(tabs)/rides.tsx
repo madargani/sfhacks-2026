@@ -11,6 +11,7 @@ import {
   Platform,
   Modal,
   Dimensions,
+  Animated,
 } from "react-native";
 import type { ScrollView as ScrollViewType } from "react-native";
 import { Image } from "expo-image";
@@ -137,6 +138,8 @@ export default function RidesScreen() {
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [rideRequests, setRideRequests] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [rideOfferNotice, setRideOfferNotice] = useState<string | null>(null);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
   const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
     getMockJoinedRideIds()
   );
@@ -154,6 +157,12 @@ export default function RidesScreen() {
   const webHourScrollRef = useRef<ScrollViewType>(null);
   const webMinuteScrollRef = useRef<ScrollViewType>(null);
   const { schedule } = useRafScrollScheduler();
+  const offerNoticeAnim = useRef(new Animated.Value(0)).current;
+  const requestNoticeAnim = useRef(new Animated.Value(0)).current;
+  const offerIdsRef = useRef<Set<string>>(new Set());
+  const requestIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedOffersRef = useRef(false);
+  const hasLoadedRequestsRef = useRef(false);
   const currentUserId = "current-user-id";
 
   // Fetch ride offers and requests from backend on mount
@@ -173,6 +182,52 @@ export default function RidesScreen() {
       fetchRideRequests();
     }, [])
   );
+
+  useEffect(() => {
+    if (!rideOfferNotice) {
+      Animated.timing(offerNoticeAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(offerNoticeAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    const timeoutId = setTimeout(() => {
+      setRideOfferNotice(null);
+    }, 2500);
+
+    return () => clearTimeout(timeoutId);
+  }, [rideOfferNotice, offerNoticeAnim]);
+
+  useEffect(() => {
+    if (!requestNotice) {
+      Animated.timing(requestNoticeAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(requestNoticeAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    const timeoutId = setTimeout(() => {
+      setRequestNotice(null);
+    }, 2500);
+
+    return () => clearTimeout(timeoutId);
+  }, [requestNotice, requestNoticeAnim]);
 
   const syncWebPartsFromDate = (sourceDate: Date) => {
     setWebMonth(sourceDate.getMonth());
@@ -245,6 +300,31 @@ export default function RidesScreen() {
     try {
       setIsLoading(true);
       const offers = await getApiData<RideOffer[]>("/api/v1/rides/offers");
+      const nextIds = new Set<string>();
+      const newOffers: RideOffer[] = [];
+
+      offers.forEach((offer) => {
+        const id = offer._id?.toString();
+        if (!id) {
+          return;
+        }
+        nextIds.add(id);
+        if (hasLoadedOffersRef.current && !offerIdsRef.current.has(id)) {
+          newOffers.push(offer);
+        }
+      });
+
+      if (hasLoadedOffersRef.current && newOffers.length > 0) {
+        const sampleOffer = newOffers[0];
+        const from = sampleOffer.fromLocation?.address ?? "Origin";
+        const to = sampleOffer.toLocation?.address ?? "Destination";
+        const extraCount = newOffers.length - 1;
+        const suffix = extraCount > 0 ? ` (+${extraCount} more)` : "";
+        setRideOfferNotice(`Ride offered: ${from} to ${to}${suffix}`);
+      }
+
+      offerIdsRef.current = nextIds;
+      hasLoadedOffersRef.current = true;
       setRideOffers(offers);
     } catch (error) {
       console.error("Error fetching ride offers:", error);
@@ -255,7 +335,32 @@ export default function RidesScreen() {
 
   const fetchRideRequests = async () => {
     try {
-      const requests = await getApiData<any[]>("/api/v1/rides/requests");
+      const requests = await getApiData<any[]>("/api/v1/rides/requests?");
+      const nextIds = new Set<string>();
+      const newRequests: any[] = [];
+
+      requests.forEach((request) => {
+        const id = request._id?.toString();
+        if (!id) {
+          return;
+        }
+        nextIds.add(id);
+        if (hasLoadedRequestsRef.current && !requestIdsRef.current.has(id)) {
+          newRequests.push(request);
+        }
+      });
+
+      if (hasLoadedRequestsRef.current && newRequests.length > 0) {
+        const sampleRequest = newRequests[0];
+        const from = sampleRequest.fromLocation?.address ?? "Origin";
+        const to = sampleRequest.toLocation?.address ?? "Destination";
+        const extraCount = newRequests.length - 1;
+        const suffix = extraCount > 0 ? ` (+${extraCount} more)` : "";
+        setRequestNotice(`Request posted: ${from} to ${to}${suffix}`);
+      }
+
+      requestIdsRef.current = nextIds;
+      hasLoadedRequestsRef.current = true;
       setRideRequests(requests);
     } catch (error) {
       console.error("Error fetching ride requests:", error);
@@ -329,9 +434,12 @@ export default function RidesScreen() {
         throw new Error("Failed to create ride request");
       }
 
-      // Close the modal and refresh the requests list
-      setShowRequestModal(false);
+      setRequestNotice(
+        `Request created: ${rideRequest.fromLocation.address} to ${rideRequest.toLocation.address}`
+      );
+      // Refresh the ride requests list
       await fetchRideRequests();
+      setShowRequestModal(false);
     } catch (error) {
       console.error("Error creating ride request:", error);
       throw error;
@@ -588,6 +696,62 @@ export default function RidesScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {rideOfferNotice ? (
+          <Animated.View
+            style={[
+              styles.notificationBanner,
+              {
+                opacity: offerNoticeAnim,
+                transform: [
+                  {
+                    translateY: offerNoticeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-80, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.notificationText}>{rideOfferNotice}</Text>
+            <TouchableOpacity
+              style={styles.notificationDismiss}
+              onPress={() => setRideOfferNotice(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.notificationDismissText}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ) : null}
+
+        {requestNotice ? (
+          <Animated.View
+            style={[
+              styles.notificationBannerSecondary,
+              {
+                opacity: requestNoticeAnim,
+                transform: [
+                  {
+                    translateY: requestNoticeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-80, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.notificationText}>{requestNotice}</Text>
+            <TouchableOpacity
+              style={styles.notificationDismiss}
+              onPress={() => setRequestNotice(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.notificationDismissText}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ) : null}
 
         {/* Tab content */}
         <ScrollView
@@ -1281,6 +1445,60 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
+  },
+  notificationBanner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: brandColors.primary,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationText: {
+    color: brandColors.white,
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    marginRight: 10,
+  },
+  notificationDismiss: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  notificationBannerSecondary: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: brandColors.dark,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 999,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationDismissText: {
+    color: brandColors.white,
+    fontSize: 18,
+    fontWeight: "600",
   },
   logoContainer: {
     alignItems: "center",

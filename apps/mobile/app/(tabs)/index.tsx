@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   StatusBar,
   Platform,
+  Animated,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image } from "expo-image";
@@ -42,9 +43,11 @@ export default function HomeScreen() {
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
   const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
     getMockJoinedRideIds()
   );
+  const requestNoticeAnim = useRef(new Animated.Value(0)).current;
   const currentUserId = "current-user-id";
 
   const fetchRideOffers = async () => {
@@ -72,6 +75,29 @@ export default function HomeScreen() {
       fetchRideOffers();
     }, [])
   );
+
+  useEffect(() => {
+    if (!requestNotice) {
+      Animated.timing(requestNoticeAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(requestNoticeAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    const timeoutId = setTimeout(() => {
+      setRequestNotice(null);
+    }, 2500);
+
+    return () => clearTimeout(timeoutId);
+  }, [requestNotice, requestNoticeAnim]);
 
   const myRides = useMemo(() => {
     const backendRides = (rideOffers as RideOfferWithJoin[])
@@ -164,6 +190,9 @@ export default function HomeScreen() {
         throw new Error("Failed to create ride request");
       }
 
+      setRequestNotice(
+        `Request created: ${rideRequest.fromLocation.address} to ${rideRequest.toLocation.address}`
+      );
       setShowRequestModal(false);
     } catch (error) {
       console.error("Error creating ride request:", error);
@@ -178,6 +207,33 @@ export default function HomeScreen() {
         locations={[0, 0.15, 0.85, 1]}
         style={styles.gradient}
       >
+        {requestNotice ? (
+          <Animated.View
+            style={[
+              styles.notificationBanner,
+              {
+                opacity: requestNoticeAnim,
+                transform: [
+                  {
+                    translateY: requestNoticeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-80, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.notificationText}>{requestNotice}</Text>
+            <TouchableOpacity
+              style={styles.notificationDismiss}
+              onPress={() => setRequestNotice(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.notificationDismissText}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ) : null}
         {/* Fixed Header - Logo, Carbon Card, and Title */}
         <View style={styles.header}>
           {/* Logo */}
@@ -362,6 +418,41 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+  },
+  notificationBanner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: brandColors.primary,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationText: {
+    color: brandColors.white,
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    marginRight: 10,
+  },
+  notificationDismiss: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  notificationDismissText: {
+    color: brandColors.white,
+    fontSize: 18,
+    fontWeight: "600",
   },
   header: {
     paddingHorizontal: 20,

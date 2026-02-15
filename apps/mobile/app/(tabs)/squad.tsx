@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
+  Animated,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -29,6 +30,8 @@ export default function SquadScreen() {
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [showInviteList, setShowInviteList] = useState(false);
   const [randomizedSuggestions, setRandomizedSuggestions] = useState<User[]>([]);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const inviteBannerAnim = useRef(new Animated.Value(0)).current;
   const [pendingRequests, setPendingRequests] = useState<PendingSquadRequest[]>(
     mockPendingRequests
   );
@@ -65,6 +68,29 @@ export default function SquadScreen() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!inviteNotice) {
+      Animated.timing(inviteBannerAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(inviteBannerAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    const timeoutId = setTimeout(() => {
+      setInviteNotice(null);
+    }, 2500);
+
+    return () => clearTimeout(timeoutId);
+  }, [inviteNotice]);
 
   const inviteSuggestions = useMemo(() => {
     const existingSquadNames = new Set(
@@ -173,6 +199,34 @@ export default function SquadScreen() {
           </View>
         </View>
 
+        {inviteNotice ? (
+          <Animated.View
+            style={[
+              styles.notificationBanner,
+              {
+                opacity: inviteBannerAnim,
+                transform: [
+                  {
+                    translateY: inviteBannerAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-80, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.notificationText}>{inviteNotice}</Text>
+            <TouchableOpacity
+              style={styles.notificationDismiss}
+              onPress={() => setInviteNotice(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.notificationDismissText}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        ) : null}
+
         {/* Tab content */}
         <ScrollView
           style={styles.scrollView}
@@ -213,6 +267,7 @@ export default function SquadScreen() {
                           key={user._id?.toString() ?? user.email}
                           user={user}
                           onInviteSent={(name: string) => {
+                            setInviteNotice(`Invite sent to ${name}`);
                             setPendingRequests((prev) => [
                               ...prev,
                               {
@@ -253,6 +308,7 @@ export default function SquadScreen() {
                       key={request.id}
                       request={request}
                       onAccept={(name) => {
+                        setInviteNotice(`Accepted ${name}'s request`);
                         setPendingRequests((prev) =>
                           prev.filter((r) => r.id !== request.id)
                         );
@@ -266,6 +322,7 @@ export default function SquadScreen() {
                         ]);
                       }}
                       onDecline={() => {
+                        setInviteNotice(`Declined ${request.name}'s request`);
                         setPendingRequests((prev) =>
                           prev.filter((r) => r.id !== request.id)
                         );
@@ -454,6 +511,41 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
+  },
+  notificationBanner: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: brandColors.primary,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationText: {
+    color: brandColors.white,
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    marginRight: 10,
+  },
+  notificationDismiss: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  notificationDismissText: {
+    color: brandColors.white,
+    fontSize: 18,
+    fontWeight: "600",
   },
   logoContainer: {
     alignItems: "center",
