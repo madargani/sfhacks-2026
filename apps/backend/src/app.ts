@@ -12,10 +12,19 @@ const app = express();
 
 app.use(helmet());
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-}));
+const corsOrigin = process.env.CORS_ORIGIN;
+const hasWildcardOrigin = corsOrigin?.trim() === '*';
+
+app.use(
+  cors({
+    origin: corsOrigin
+      ? hasWildcardOrigin
+        ? (origin, callback) => callback(null, origin ?? true)
+        : corsOrigin.split(',').map((origin) => origin.trim())
+      : (origin, callback) => callback(null, origin ?? true),
+    credentials: true,
+  })
+);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

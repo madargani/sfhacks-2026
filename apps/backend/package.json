@@ -8,7 +8,8 @@
     "start": "node dist/server.ts",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc --noEmit",
-    "test:db": "ts-node-dev --transpile-only src/scripts/test-db.ts"
+    "test:db": "ts-node-dev --transpile-only src/scripts/test-db.ts",
+    "seed:users": "ts-node-dev --transpile-only src/scripts/seed-users.ts"
   },
   "dependencies": {
     "@evergreen/shared-types": "*",
