@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
@@ -8,9 +8,14 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
+  Platform,
+  Modal,
+  Dimensions,
 } from "react-native";
+import type { ScrollView as ScrollViewType } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { brandColors } from "@/constants/theme";
 import {
   mockNearbyOfferings,
@@ -21,6 +26,14 @@ import {
 import { OfferRideModal } from "@/components/offer-ride-modal";
 import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
 import { getApiData } from "@/services/api";
+import {
+  SCROLLER_PADDING,
+  getDaysInMonth,
+  getScrollOffsetY,
+  getScrollerIndex,
+  scrollToIndex,
+  useRafScrollScheduler,
+} from "@/utils/web-picker";
 
 type TabId = "offering" | "requesting";
 
@@ -74,6 +87,19 @@ export default function RidesScreen() {
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [editingRideId, setEditingRideId] = useState<string | null>(null);
+  const [editDateTime, setEditDateTime] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [webMonth, setWebMonth] = useState(0);
+  const [webDay, setWebDay] = useState(1);
+  const [webHour, setWebHour] = useState(0);
+  const [webMinute, setWebMinute] = useState(0);
+  const webMonthScrollRef = useRef<ScrollViewType>(null);
+  const webDayScrollRef = useRef<ScrollViewType>(null);
+  const webHourScrollRef = useRef<ScrollViewType>(null);
+  const webMinuteScrollRef = useRef<ScrollViewType>(null);
+  const { schedule } = useRafScrollScheduler();
 
   // Fetch ride offers from backend on mount
   useEffect(() => {
@@ -86,6 +112,73 @@ export default function RidesScreen() {
       fetchRideOffers();
     }, [])
   );
+
+  const syncWebPartsFromDate = (sourceDate: Date) => {
+    setWebMonth(sourceDate.getMonth());
+    setWebDay(sourceDate.getDate());
+    setWebHour(sourceDate.getHours());
+    setWebMinute(Math.floor(sourceDate.getMinutes() / 15) * 15);
+  };
+
+  const createDateTimeFromWebParts = (baseDate: Date) => {
+    const nextDate = new Date(baseDate);
+    const daysInMonth = getDaysInMonth(nextDate.getFullYear(), webMonth);
+    const clampedDay = Math.min(webDay, daysInMonth);
+    nextDate.setMonth(webMonth);
+    nextDate.setDate(clampedDay);
+    nextDate.setHours(webHour);
+    nextDate.setMinutes(webMinute);
+    nextDate.setSeconds(0);
+    nextDate.setMilliseconds(0);
+    return nextDate;
+  };
+
+  const updateWebMonthFromOffset = (offsetY: number) => {
+    if (!editDateTime) {
+      return;
+    }
+    const index = getScrollerIndex(offsetY);
+    const clampedIndex = Math.max(0, Math.min(11, index));
+    const daysInMonth = getDaysInMonth(editDateTime.getFullYear(), clampedIndex);
+    setWebMonth(clampedIndex);
+    if (webDay > daysInMonth) {
+      setWebDay(daysInMonth);
+    }
+  };
+
+  const updateWebDayFromOffset = (offsetY: number) => {
+    if (!editDateTime) {
+      return;
+    }
+    const index = getScrollerIndex(offsetY);
+    const daysInMonth = getDaysInMonth(editDateTime.getFullYear(), webMonth);
+    const day = Math.max(1, Math.min(daysInMonth, index + 1));
+    setWebDay(day);
+  };
+
+  const updateWebHourFromOffset = (offsetY: number) => {
+    const index = getScrollerIndex(offsetY);
+    const clampedIndex = Math.max(0, Math.min(23, index));
+    setWebHour(clampedIndex);
+  };
+
+  const updateWebMinuteFromOffset = (offsetY: number) => {
+    const index = getScrollerIndex(offsetY);
+    const clampedIndex = Math.max(0, Math.min(3, index));
+    setWebMinute(clampedIndex * 15);
+  };
+
+  const makeScrollHandler = (handler: (nextOffset: number) => void) => {
+    return (event: any) => {
+      const offsetY = getScrollOffsetY(event);
+      schedule(offsetY, handler);
+    };
+  };
+
+  const updateWebMonthFromScroll = makeScrollHandler(updateWebMonthFromOffset);
+  const updateWebDayFromScroll = makeScrollHandler(updateWebDayFromOffset);
+  const updateWebHourFromScroll = makeScrollHandler(updateWebHourFromOffset);
+  const updateWebMinuteFromScroll = makeScrollHandler(updateWebMinuteFromOffset);
 
   const fetchRideOffers = async () => {
     try {
@@ -146,6 +239,37 @@ export default function RidesScreen() {
     } catch (error) {
       console.error("Error creating ride offer:", error);
       throw error;
+    }
+  };
+
+  const handleUpdateRideOffer = async (overrideDate?: Date) => {
+    const nextDateTime = overrideDate ?? editDateTime;
+    if (!editingRideId || !nextDateTime) return;
+
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/offers/${editingRideId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            dateTime: nextDateTime.toISOString(),
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update ride offer");
+      }
+
+      setEditingRideId(null);
+      setEditDateTime(null);
+      await fetchRideOffers();
+    } catch (error) {
+      console.error("Error updating ride offer:", error);
+      alert("Failed to update ride offer");
     }
   };
 
@@ -277,6 +401,15 @@ export default function RidesScreen() {
                       ride={convertRideOfferToNearby(offer)}
                       rideId={offer._id?.toString()}
                       onDelete={() => handleDeleteRide(offer._id?.toString() || '')}
+                      onEdit={() => {
+                        const nextDate = new Date(offer.dateTime);
+                        setEditingRideId(offer._id?.toString() || '');
+                        setEditDateTime(nextDate);
+                        if (Platform.OS === "web") {
+                          syncWebPartsFromDate(nextDate);
+                        }
+                        setShowDatePicker(true);
+                      }}
                     />
                   ))}
                   {/* Display mock ride offers */}
@@ -321,6 +454,299 @@ export default function RidesScreen() {
         onSubmit={handleCreateRideOffer}
         userId="current-user-id" // TODO: Replace with actual logged-in user ID
       />
+
+      {/* Date/Time Picker for Editing Rides */}
+      {showDatePicker && editDateTime && Platform.OS !== "web" && (
+        <View>
+          <DateTimePicker
+            value={editDateTime}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              if (selectedDate) {
+                const newDate = new Date(selectedDate);
+                newDate.setHours(editDateTime.getHours());
+                newDate.setMinutes(editDateTime.getMinutes());
+                setEditDateTime(newDate);
+              }
+              setShowDatePicker(false);
+              setShowTimePicker(true);
+            }}
+          />
+        </View>
+      )}
+
+      {showTimePicker && editDateTime && Platform.OS !== "web" && (
+        <View>
+          <DateTimePicker
+            value={editDateTime}
+            mode="time"
+            display="default"
+            onChange={(event, selectedTime) => {
+              if (selectedTime) {
+                const updatedDateTime = new Date(editDateTime);
+                updatedDateTime.setHours(selectedTime.getHours());
+                updatedDateTime.setMinutes(selectedTime.getMinutes());
+                setEditDateTime(updatedDateTime);
+                handleUpdateRideOffer(updatedDateTime);
+              } else {
+                handleUpdateRideOffer();
+              }
+              setShowTimePicker(false);
+            }}
+          />
+        </View>
+      )}
+
+      {/* Web Fallback for Date/Time Picker */}
+      {Platform.OS === "web" && (showDatePicker || showTimePicker) && editDateTime && (
+        <Modal
+          visible={true}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowDatePicker(false);
+            setShowTimePicker(false);
+          }}
+        >
+          <View style={styles.webPickerOverlay}>
+            <View style={styles.webPickerModal}>
+              <Text style={styles.webPickerTitle}>
+                {showDatePicker ? "Select Date" : "Select Time"}
+              </Text>
+
+              {showDatePicker && (
+                <View style={styles.webPickerContent}>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollerContainer}
+                  >
+                    {/* Month Scroller */}
+                    <View style={styles.scrollerColumn}>
+                      <Text style={styles.scrollerLabel}>Month</Text>
+                      <ScrollView 
+                        style={styles.scroller}
+                        scrollEventThrottle={16}
+                        onScroll={updateWebMonthFromScroll}
+                        onScrollEndDrag={updateWebMonthFromScroll}
+                        onMomentumScrollEnd={updateWebMonthFromScroll}
+                        ref={webMonthScrollRef}
+                      >
+                        <View style={{ height: SCROLLER_PADDING }} />
+                        {['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'
+                        ].map((month, idx) => (
+                          <TouchableOpacity
+                            key={month}
+                            style={[
+                              styles.scrollerItem,
+                              idx === webMonth && styles.scrollerItemSelected
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              if (!editDateTime) {
+                                return;
+                              }
+                              const daysInMonth = getDaysInMonth(
+                                editDateTime.getFullYear(),
+                                idx
+                              );
+                              setWebMonth(idx);
+                              if (webDay > daysInMonth) {
+                                setWebDay(daysInMonth);
+                              }
+                              scrollToIndex(webMonthScrollRef, idx);
+                            }}
+                          >
+                            <Text style={[
+                              styles.scrollerItemText,
+                              idx === webMonth && styles.scrollerItemTextSelected
+                            ]}>
+                              {month}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        <View style={{ height: SCROLLER_PADDING }} />
+                      </ScrollView>
+                    </View>
+
+                    {/* Day Scroller */}
+                    <View style={styles.scrollerColumn}>
+                      <Text style={styles.scrollerLabel}>Day</Text>
+                      <ScrollView 
+                        style={styles.scroller}
+                        scrollEventThrottle={16}
+                        onScroll={updateWebDayFromScroll}
+                        onScrollEndDrag={updateWebDayFromScroll}
+                        onMomentumScrollEnd={updateWebDayFromScroll}
+                        ref={webDayScrollRef}
+                      >
+                        <View style={{ height: SCROLLER_PADDING }} />
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                          <TouchableOpacity
+                            key={day}
+                            style={[
+                              styles.scrollerItem,
+                              day === webDay && styles.scrollerItemSelected
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              if (!editDateTime) {
+                                return;
+                              }
+                              const daysInMonth = getDaysInMonth(
+                                editDateTime.getFullYear(),
+                                webMonth
+                              );
+                              const clampedDay = Math.min(day, daysInMonth);
+                              setWebDay(clampedDay);
+                              scrollToIndex(webDayScrollRef, clampedDay - 1);
+                            }}
+                          >
+                            <Text style={[
+                              styles.scrollerItemText,
+                              day === webDay && styles.scrollerItemTextSelected
+                            ]}>
+                              {day}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        <View style={{ height: SCROLLER_PADDING }} />
+                      </ScrollView>
+                    </View>
+                  </ScrollView>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (editDateTime) {
+                        setEditDateTime(createDateTimeFromWebParts(editDateTime));
+                      }
+                      setShowDatePicker(false);
+                      setShowTimePicker(true);
+                    }}
+                    style={styles.webPickerButton}
+                  >
+                    <Text style={styles.webPickerButtonText}>Select Date</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {showTimePicker && (
+                <View style={styles.webPickerContent}>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollerContainer}
+                  >
+                    {/* Hour Scroller */}
+                    <View style={styles.scrollerColumn}>
+                      <Text style={styles.scrollerLabel}>Hour</Text>
+                      <ScrollView 
+                        style={styles.scroller}
+                        scrollEventThrottle={16}
+                        onScroll={updateWebHourFromScroll}
+                        onScrollEndDrag={updateWebHourFromScroll}
+                        onMomentumScrollEnd={updateWebHourFromScroll}
+                        ref={webHourScrollRef}
+                      >
+                        <View style={{ height: SCROLLER_PADDING }} />
+                        {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+                          <TouchableOpacity
+                            key={hour}
+                            style={[
+                              styles.scrollerItem,
+                              hour === webHour && styles.scrollerItemSelected
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              setWebHour(hour);
+                              scrollToIndex(webHourScrollRef, hour);
+                            }}
+                          >
+                            <Text style={[
+                              styles.scrollerItemText,
+                              hour === webHour && styles.scrollerItemTextSelected
+                            ]}>
+                              {String(hour).padStart(2, "0")}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        <View style={{ height: SCROLLER_PADDING }} />
+                      </ScrollView>
+                    </View>
+
+                    {/* Minute Scroller */}
+                    <View style={styles.scrollerColumn}>
+                      <Text style={styles.scrollerLabel}>Minute</Text>
+                      <ScrollView 
+                        style={styles.scroller}
+                        scrollEventThrottle={16}
+                        onScroll={updateWebMinuteFromScroll}
+                        onScrollEndDrag={updateWebMinuteFromScroll}
+                        onMomentumScrollEnd={updateWebMinuteFromScroll}
+                        ref={webMinuteScrollRef}
+                      >
+                        <View style={{ height: SCROLLER_PADDING }} />
+                        {Array.from({ length: 4 }, (_, i) => i * 15).map((minute) => (
+                          <TouchableOpacity
+                            key={minute}
+                            style={[
+                              styles.scrollerItem,
+                              minute === webMinute && styles.scrollerItemSelected
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              setWebMinute(minute);
+                              scrollToIndex(webMinuteScrollRef, minute / 15);
+                            }}
+                          >
+                            <Text style={[
+                              styles.scrollerItemText,
+                              minute === webMinute && styles.scrollerItemTextSelected
+                            ]}>
+                              {String(minute).padStart(2, "0")}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                        <View style={{ height: SCROLLER_PADDING }} />
+                      </ScrollView>
+                    </View>
+                  </ScrollView>
+
+                  <View style={styles.webPickerButtonGroup}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowDatePicker(true);
+                        setShowTimePicker(false);
+                      }}
+                      style={[styles.webPickerButton, styles.webPickerButtonSecondary]}
+                    >
+                      <Text style={styles.webPickerButtonText}>Back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (editDateTime) {
+                          const nextDate = createDateTimeFromWebParts(editDateTime);
+                          setEditDateTime(nextDate);
+                          handleUpdateRideOffer(nextDate);
+                        } else {
+                          handleUpdateRideOffer();
+                        }
+                        setShowDatePicker(false);
+                        setShowTimePicker(false);
+                      }}
+                      style={styles.webPickerButton}
+                    >
+                      <Text style={styles.webPickerButtonText}>Select Time</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -383,10 +809,12 @@ function OfferingCard({
   ride, 
   rideId, 
   onDelete,
+  onEdit,
 }: { 
   ride: NearbyOfferingRide;
   rideId?: string;
   onDelete?: () => void;
+  onEdit?: () => void;
 }) {
   const isBackendRide = !!rideId;
 
@@ -394,13 +822,25 @@ function OfferingCard({
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
-        {isBackendRide && onDelete && (
-          <TouchableOpacity 
-            onPress={onDelete}
-            style={styles.deleteButton}
-          >
-            <Text style={styles.deleteButtonText}>✕</Text>
-          </TouchableOpacity>
+        {isBackendRide && (
+          <View style={styles.cardHeaderButtons}>
+            {onEdit && (
+              <TouchableOpacity 
+                onPress={onEdit}
+                style={styles.editButton}
+              >
+                <Text style={styles.editButtonText}>✎</Text>
+              </TouchableOpacity>
+            )}
+            {onDelete && (
+              <TouchableOpacity 
+                onPress={onDelete}
+                style={styles.deleteButton}
+              >
+                <Text style={styles.deleteButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
       </View>
       <View style={styles.rideRoute}>
@@ -594,6 +1034,24 @@ const styles = StyleSheet.create({
     color: "#d32f2f",
     fontWeight: "bold",
   },
+  cardHeaderButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  editButton: {
+    padding: 6,
+    backgroundColor: brandColors.beige,
+    borderRadius: 6,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editButtonText: {
+    fontSize: 16,
+    color: brandColors.primary,
+    fontWeight: "bold",
+  },
   cardFooter: {
     alignItems: "flex-end",
     marginTop: 12,
@@ -713,4 +1171,91 @@ const styles = StyleSheet.create({
     right: 0,
     height: 200,
   },
-});
+  webPickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  webPickerModal: {
+    backgroundColor: brandColors.white,
+    borderRadius: 12,
+    padding: 20,
+    width: "80%",
+    maxWidth: 400,
+  },
+  webPickerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: brandColors.dark,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  webPickerContent: {
+    marginBottom: 24,
+  },
+  scrollerContainer: {
+    gap: 16,
+    paddingHorizontal: 12,
+  },
+  scrollerColumn: {
+    alignItems: "center",
+    minWidth: 100,
+  },
+  scrollerLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: brandColors.beige,
+    marginBottom: 12,
+    textTransform: "uppercase",
+  },
+  scroller: {
+    height: 200,
+    width: 80,
+    borderWidth: 1,
+    borderColor: brandColors.beige,
+    borderRadius: 8,
+  },
+  scrollerItem: {
+    height: 50,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  scrollerItemSelected: {
+    backgroundColor: brandColors.primary,
+    borderRadius: 4,
+  },
+  scrollerItemText: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: brandColors.dark,
+  },
+  scrollerItemTextSelected: {
+    color: brandColors.white,
+    fontWeight: "700",
+  },
+  dateInputGroup: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 20,
+  },
+  webPickerButton: {
+    backgroundColor: brandColors.primary,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  webPickerButtonSecondary: {
+    backgroundColor: brandColors.beige,
+  },
+  webPickerButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: brandColors.white,
+  },
+  webPickerButtonGroup: {
+    flexDirection: "row",
+    gap: 10,
+  },});
