@@ -28,6 +28,11 @@ export default function SquadScreen() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [showInviteList, setShowInviteList] = useState(false);
+  const [randomizedSuggestions, setRandomizedSuggestions] = useState<User[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingSquadRequest[]>(
+    mockPendingRequests
+  );
+  const [squadMembers, setSquadMembers] = useState<SquadMember[]>(mockSquadMembers);
 
   useEffect(() => {
     let isMounted = true;
@@ -63,10 +68,10 @@ export default function SquadScreen() {
 
   const inviteSuggestions = useMemo(() => {
     const existingSquadNames = new Set(
-      mockSquadMembers.map((member) => member.name.toLowerCase())
+      squadMembers.map((member) => member.name.toLowerCase())
     );
     const pendingNames = new Set(
-      mockPendingRequests.map((request) => request.name.toLowerCase())
+      pendingRequests.map((request) => request.name.toLowerCase())
     );
 
     return inviteCandidates.filter(
@@ -75,7 +80,12 @@ export default function SquadScreen() {
         !existingSquadNames.has(user.name.toLowerCase()) &&
         !pendingNames.has(user.name.toLowerCase())
     );
-  }, [inviteCandidates]);
+  }, [inviteCandidates, pendingRequests, squadMembers]);
+
+  const shuffleAndPick = () => {
+    const shuffled = [...inviteSuggestions].sort(() => Math.random() - 0.5);
+    setRandomizedSuggestions(shuffled.slice(0, 5));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -127,7 +137,7 @@ export default function SquadScreen() {
                     activeTab === "squad" && styles.tabBadgeTextActive,
                   ]}
                 >
-                  {mockSquadMembers.length}
+                  {squadMembers.length}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -156,7 +166,7 @@ export default function SquadScreen() {
                     activeTab === "pending" && styles.tabBadgeTextActive,
                   ]}
                 >
-                  {mockPendingRequests.length}
+                  {pendingRequests.length}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -170,7 +180,7 @@ export default function SquadScreen() {
         >
           {activeTab === "squad" ? (
             <View style={styles.tabContent}>
-              {mockSquadMembers.length === 0 ? (
+              {squadMembers.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText}>No squad members yet</Text>
                   <Text style={styles.emptySubtext}>
@@ -179,7 +189,7 @@ export default function SquadScreen() {
                 </View>
               ) : (
                 <View style={styles.list}>
-                  {mockSquadMembers.map((member) => (
+                  {squadMembers.map((member) => (
                     <SquadMemberCard key={member.id} member={member} />
                   ))}
                 </View>
@@ -193,15 +203,29 @@ export default function SquadScreen() {
                   <Text style={styles.errorText}>{inviteError}</Text>
                 ) : showInviteList ? (
                   <View style={styles.list}>
-                    {inviteSuggestions.length === 0 ? (
+                    {randomizedSuggestions.length === 0 ? (
                       <Text style={styles.sectionSubtext}>
                         No one new to invite right now.
                       </Text>
                     ) : (
-                      inviteSuggestions.map((user) => (
+                      randomizedSuggestions.map((user) => (
                         <InviteSuggestionCard
                           key={user._id?.toString() ?? user.email}
                           user={user}
+                          onInviteSent={(name: string) => {
+                            setPendingRequests((prev) => [
+                              ...prev,
+                              {
+                                id: Math.random().toString(),
+                                name,
+                                status: "sent",
+                                requestedAt: "Today",
+                              },
+                            ]);
+                            setRandomizedSuggestions((prev) =>
+                              prev.filter((user) => user.name !== name)
+                            );
+                          }}
                         />
                       ))
                     )}
@@ -215,7 +239,7 @@ export default function SquadScreen() {
             </View>
           ) : (
             <View style={styles.tabContent}>
-              {mockPendingRequests.length === 0 ? (
+              {pendingRequests.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText}>No pending requests</Text>
                   <Text style={styles.emptySubtext}>
@@ -224,8 +248,29 @@ export default function SquadScreen() {
                 </View>
               ) : (
                 <View style={styles.list}>
-                  {mockPendingRequests.map((request) => (
-                    <PendingRequestCard key={request.id} request={request} />
+                  {pendingRequests.map((request) => (
+                    <PendingRequestCard
+                      key={request.id}
+                      request={request}
+                      onAccept={(name) => {
+                        setPendingRequests((prev) =>
+                          prev.filter((r) => r.id !== request.id)
+                        );
+                        setSquadMembers((prev) => [
+                          ...prev,
+                          {
+                            id: Math.random().toString(),
+                            name,
+                            ridesWithUser: 0,
+                          },
+                        ]);
+                      }}
+                      onDecline={() => {
+                        setPendingRequests((prev) =>
+                          prev.filter((r) => r.id !== request.id)
+                        );
+                      }}
+                    />
                   ))}
                 </View>
               )}
@@ -247,7 +292,13 @@ export default function SquadScreen() {
             activeOpacity={0.8}
             onPress={() => {
               setActiveTab("squad");
-              setShowInviteList((prev) => !prev);
+              setShowInviteList((prev) => {
+                const newState = !prev;
+                if (newState) {
+                  shuffleAndPick();
+                }
+                return newState;
+              });
             }}
           >
             <Text style={styles.inviteButtonText}>
@@ -284,7 +335,15 @@ function SquadMemberCard({ member }: { member: SquadMember }) {
   );
 }
 
-function PendingRequestCard({ request }: { request: PendingSquadRequest }) {
+function PendingRequestCard({
+  request,
+  onAccept,
+  onDecline,
+}: {
+  request: PendingSquadRequest;
+  onAccept?: (name: string) => void;
+  onDecline?: () => void;
+}) {
   return (
     <View style={styles.card}>
       <View style={styles.cardRow}>
@@ -305,10 +364,18 @@ function PendingRequestCard({ request }: { request: PendingSquadRequest }) {
           </Text>
           {request.status === "received" && (
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.acceptButton} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={styles.acceptButton}
+                activeOpacity={0.8}
+                onPress={() => onAccept?.(request.name)}
+              >
                 <Text style={styles.acceptButtonText}>Accept</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.declineButton} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={styles.declineButton}
+                activeOpacity={0.8}
+                onPress={() => onDecline?.()}
+              >
                 <Text style={styles.declineButtonText}>Decline</Text>
               </TouchableOpacity>
             </View>
@@ -319,7 +386,30 @@ function PendingRequestCard({ request }: { request: PendingSquadRequest }) {
   );
 }
 
-function InviteSuggestionCard({ user }: { user: User }) {
+function InviteSuggestionCard({
+  user,
+  onInviteSent,
+}: {
+  user: User;
+  onInviteSent?: (name: string) => void;
+}) {
+  const [isInviting, setIsInviting] = useState(false);
+  const [invited, setInvited] = useState(false);
+
+  const handleInvite = async () => {
+    setIsInviting(true);
+    try {
+      // Simulate a small delay for user feedback
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      setInvited(true);
+      onInviteSent?.(user.name);
+    } catch (error) {
+      console.error("Failed to send invite:", error);
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.cardRow}>
@@ -336,11 +426,18 @@ function InviteSuggestionCard({ user }: { user: User }) {
           <Text style={styles.cardMeta}>{user.email}</Text>
         </View>
         <TouchableOpacity
-          style={styles.inviteAction}
+          style={[
+            styles.inviteAction,
+            invited && styles.inviteActionSuccess,
+            isInviting && styles.inviteActionDisabled,
+          ]}
           activeOpacity={0.8}
-          onPress={() => {}}
+          onPress={handleInvite}
+          disabled={isInviting || invited}
         >
-          <Text style={styles.inviteActionText}>Invite</Text>
+          <Text style={styles.inviteActionText}>
+            {invited ? "Invited" : isInviting ? "..." : "Invite"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -522,6 +619,13 @@ const styles = StyleSheet.create({
     color: brandColors.white,
     fontSize: 14,
     fontWeight: "600",
+  },
+  inviteActionSuccess: {
+    backgroundColor: brandColors.dark,
+    opacity: 0.7,
+  },
+  inviteActionDisabled: {
+    opacity: 0.5,
   },
   emptyState: {
     alignItems: "center",
