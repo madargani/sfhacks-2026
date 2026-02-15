@@ -10,7 +10,7 @@ router.get('/:id', validateObjectId, rideOfferController.getRideOfferById);
 
 router.post(
   '/',
-  validateRequiredFields(['userId', 'fromLocation', 'toLocation', 'dateTime', 'availableSeats', 'price']),
+  validateRequiredFields(['userId', 'fromLocation', 'toLocation', 'dateTime', 'availableSeats']),
   rideOfferController.createRideOffer
 );
 

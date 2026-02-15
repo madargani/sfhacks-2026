@@ -26,7 +26,6 @@ export interface RideOffer {
   toLocation: Location;
   dateTime: Date;
   availableSeats: number;
-  price: number;
   notes?: string;
   status: RideStatus;
   createdAt?: Date;
@@ -48,7 +47,6 @@ export interface CreateRideOffer {
   toLocation: Location;
   dateTime: Date;
   availableSeats: number;
-  price: number;
   notes?: string;
 }
 
@@ -66,7 +64,6 @@ export interface UpdateRideOffer {
   toLocation?: Location;
   dateTime?: Date;
   availableSeats?: number;
-  price?: number;
   notes?: string;
   status?: RideStatus;
 }

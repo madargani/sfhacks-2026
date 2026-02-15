@@ -1,10 +1,38 @@
+import { useState, useEffect } from "react";
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, SafeAreaView, StatusBar } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { mockRides, mockCarbonSaved, type UpcomingRide } from "@/data/mock/rides";
 import { brandColors } from "@/constants/theme";
+import { OfferRideModal } from "@/components/offer-ride-modal";
+import { CreateRideOffer } from "@evergreen/shared-types";
 
 export default function HomeScreen() {
+  const [showOfferModal, setShowOfferModal] = useState(false);
+
+  const handleCreateRideOffer = async (rideOffer: CreateRideOffer) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/offers`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(rideOffer),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to create ride offer");
+      }
+
+      setShowOfferModal(false);
+    } catch (error) {
+      console.error("Error creating ride offer:", error);
+      throw error;
+    }
+  };
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -63,7 +91,11 @@ export default function HomeScreen() {
 
         {/* Fixed Bottom Buttons */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.offerButton} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.offerButton} 
+            activeOpacity={0.8}
+            onPress={() => setShowOfferModal(true)}
+          >
             <Text style={styles.offerButtonText}>Offer a Ride</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.requestButton} activeOpacity={0.8}>
@@ -71,6 +103,14 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </LinearGradient>
+
+      {/* Offer Ride Modal */}
+      <OfferRideModal
+        visible={showOfferModal}
+        onClose={() => setShowOfferModal(false)}
+        onSubmit={handleCreateRideOffer}
+        userId="current-user-id" // TODO: Replace with actual logged-in user ID
+      />
     </SafeAreaView>
   );
 }

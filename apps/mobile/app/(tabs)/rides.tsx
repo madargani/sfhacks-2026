@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   StyleSheet,
   View,
@@ -17,11 +18,136 @@ import {
   type NearbyOfferingRide,
   type NearbyRequestingRide,
 } from "@/data/mock/nearby-rides";
+import { OfferRideModal } from "@/components/offer-ride-modal";
+import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
+import { getApiData } from "@/services/api";
 
 type TabId = "offering" | "requesting";
 
+// Helper function to convert RideOffer to NearbyOfferingRide
+const convertRideOfferToNearby = (offer: RideOffer): NearbyOfferingRide => {
+  const departureDate = new Date(offer.dateTime);
+  const now = new Date();
+  
+  // Format departure time
+  let departureTime: string;
+  const isToday = departureDate.toDateString() === now.toDateString();
+  const isTomorrow = 
+    new Date(now.getTime() + 24 * 60 * 60 * 1000).toDateString() === 
+    departureDate.toDateString();
+  
+  if (isToday) {
+    departureTime = departureDate.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } else if (isTomorrow) {
+    departureTime = `Tomorrow ${departureDate.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    })}`;
+  } else {
+    departureTime = departureDate.toLocaleDateString('en-US', {
+      weekday: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  // Estimate total seats (assuming small car if not specified)
+  const totalSeats = Math.max(5, offer.availableSeats + 1) as 5 | 6 | 7 | 8;
+
+  return {
+    id: offer._id?.toString() || '',
+    destination: offer.toLocation.address,
+    origin: offer.fromLocation.address,
+    milesAway: 0, // TODO: Calculate distance from user's location
+    totalSeats,
+    availableSeats: offer.availableSeats,
+    driverName: 'Driver', // TODO: Populate from user data
+    departureTime,
+  };
+};
+
 export default function RidesScreen() {
   const [activeTab, setActiveTab] = useState<TabId>("offering");
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch ride offers from backend on mount
+  useEffect(() => {
+    fetchRideOffers();
+  }, []);
+
+  // Refresh ride offers when screen is focused (e.g., after creating a ride on home screen)
+  useFocusEffect(
+    useCallback(() => {
+      fetchRideOffers();
+    }, [])
+  );
+
+  const fetchRideOffers = async () => {
+    try {
+      setIsLoading(true);
+      const offers = await getApiData<RideOffer[]>("/api/v1/rides/offers");
+      setRideOffers(offers);
+    } catch (error) {
+      console.error("Error fetching ride offers:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteRide = async (rideId: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/offers/${rideId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete ride offer");
+      }
+
+      // Refresh the ride offers list
+      await fetchRideOffers();
+    } catch (error) {
+      console.error("Error deleting ride offer:", error);
+      alert("Failed to delete ride offer");
+    }
+  };
+
+  const handleCreateRideOffer = async (rideOffer: CreateRideOffer) => {
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/v1/rides/offers`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(rideOffer),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to create ride offer");
+      }
+
+      // Refresh the ride offers list
+      await fetchRideOffers();
+      setShowOfferModal(false);
+    } catch (error) {
+      console.error("Error creating ride offer:", error);
+      throw error;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -45,6 +171,18 @@ export default function RidesScreen() {
               contentFit="contain"
             />
           </View>
+
+          {/* Offer Ride Button */}
+          <TouchableOpacity
+            style={styles.offerButton}
+            onPress={() => {
+              console.log("Offer ride button pressed!");
+              setShowOfferModal(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.offerButtonText}>+ Offer a Ride</Text>
+          </TouchableOpacity>
 
           {/* Tabs */}
           <View style={styles.tabBar}>
@@ -73,7 +211,7 @@ export default function RidesScreen() {
                     activeTab === "offering" && styles.tabBadgeTextActive,
                   ]}
                 >
-                  {mockNearbyOfferings.length}
+                  {mockNearbyOfferings.length + rideOffers.length}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -119,17 +257,31 @@ export default function RidesScreen() {
         >
           {activeTab === "offering" ? (
             <View style={styles.tabContent}>
-              {mockNearbyOfferings.length === 0 ? (
+              {isLoading ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>Loading rides...</Text>
+                </View>
+              ) : mockNearbyOfferings.length === 0 && rideOffers.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText}>No nearby offerings</Text>
                   <Text style={styles.emptySubtext}>
-                    Check back later for ride offers!
+                    Be the first to offer a ride!
                   </Text>
                 </View>
               ) : (
                 <View style={styles.list}>
+                  {/* Display backend ride offers */}
+                  {rideOffers.map((offer) => (
+                    <OfferingCard
+                      key={`backend-${offer._id?.toString()}`}
+                      ride={convertRideOfferToNearby(offer)}
+                      rideId={offer._id?.toString()}
+                      onDelete={() => handleDeleteRide(offer._id?.toString() || '')}
+                    />
+                  ))}
+                  {/* Display mock ride offers */}
                   {mockNearbyOfferings.map((ride) => (
-                    <OfferingCard key={ride.id} ride={ride} />
+                    <OfferingCard key={`mock-${ride.id}`} ride={ride} />
                   ))}
                 </View>
               )}
@@ -161,6 +313,14 @@ export default function RidesScreen() {
           pointerEvents="none"
         />
       </LinearGradient>
+
+      {/* Offer Ride Modal */}
+      <OfferRideModal
+        visible={showOfferModal}
+        onClose={() => setShowOfferModal(false)}
+        onSubmit={handleCreateRideOffer}
+        userId="current-user-id" // TODO: Replace with actual logged-in user ID
+      />
     </SafeAreaView>
   );
 }
@@ -219,15 +379,29 @@ function SeatOverview({
   );
 }
 
-function OfferingCard({ ride }: { ride: NearbyOfferingRide }) {
+function OfferingCard({ 
+  ride, 
+  rideId, 
+  onDelete,
+}: { 
+  ride: NearbyOfferingRide;
+  rideId?: string;
+  onDelete?: () => void;
+}) {
+  const isBackendRide = !!rideId;
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
-        <View style={styles.leavingBlock}>
-          <Text style={styles.leavingLabel}>Leaving</Text>
-          <Text style={styles.leavingTime}>{ride.departureTime}</Text>
-        </View>
+        {isBackendRide && onDelete && (
+          <TouchableOpacity 
+            onPress={onDelete}
+            style={styles.deleteButton}
+          >
+            <Text style={styles.deleteButtonText}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
       <View style={styles.rideRoute}>
         <View style={styles.routePoint}>
@@ -247,15 +421,21 @@ function OfferingCard({ ride }: { ride: NearbyOfferingRide }) {
       <View style={styles.cardMeta}>
         <Text style={styles.driverText}>{ride.driverName}</Text>
       </View>
-      <View style={styles.seatsRow}>
-        <Text style={styles.seatsLabel}>
-          {ride.availableSeats} seat{ride.availableSeats === 1 ? "" : "s"}{" "}
-          available
-        </Text>
-        <SeatOverview
-          totalSeats={ride.totalSeats}
-          availableSeats={ride.availableSeats}
-        />
+      <View style={styles.seatsAndTimeRow}>
+        <View>
+          <Text style={styles.seatsLabel}>
+            {ride.availableSeats} seat{ride.availableSeats === 1 ? "" : "s"}{" "}
+            available
+          </Text>
+          <SeatOverview
+            totalSeats={ride.totalSeats}
+            availableSeats={ride.availableSeats}
+          />
+        </View>
+        <View style={styles.leavingBlock}>
+          <Text style={styles.leavingLabel}>Leaving</Text>
+          <Text style={styles.leavingTime}>{ride.departureTime}</Text>
+        </View>
       </View>
     </View>
   );
@@ -311,6 +491,19 @@ const styles = StyleSheet.create({
   logo: {
     width: 240,
     height: 80,
+  },
+  offerButton: {
+    backgroundColor: brandColors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  offerButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: brandColors.white,
   },
   tabBar: {
     flexDirection: "row",
@@ -387,6 +580,24 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 8,
   },
+  deleteButton: {
+    padding: 6,
+    backgroundColor: brandColors.beige,
+    borderRadius: 6,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    color: "#d32f2f",
+    fontWeight: "bold",
+  },
+  cardFooter: {
+    alignItems: "flex-end",
+    marginTop: 12,
+  },
   leavingBlock: {
     alignItems: "flex-end",
   },
@@ -441,6 +652,13 @@ const styles = StyleSheet.create({
   requesterText: {
     fontSize: 14,
     color: brandColors.dark,
+  },
+  seatsAndTimeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginTop: 12,
+    gap: 12,
   },
   seatsRow: {
     marginTop: 4,
