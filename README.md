@@ -1,6 +1,6 @@
 # Evergreen - Mobile Carpool Organization App
 
-A sustainability-focused mobile carpool application that connects users for ride sharing.
+A sustainability-focused mobile carpool application.
 
 ## Features
 
@@ -51,6 +51,7 @@ npm install
 Create `.env` files for each app:
 
 **apps/backend/.env:**
+
 ```env
 PORT=3000
 MONGODB_URI=your_mongodb_atlas_uri
@@ -58,6 +59,7 @@ CORS_ORIGIN=*
 ```
 
 **apps/mobile/.env:**
+
 ```env
 API_URL=http://localhost:3000
 ```
@@ -81,5 +83,10 @@ npm run mobile
 - `npm run lint` - Lint all packages
 
 ## Team
+
+- [Andre Dargani](https://github.com/madargani)
+- [Michael McGruder](https://github.com/Mikey24M)
+- [Brayden Concepcion](https://github.com/braydenconcep)
+- [Gavin Funk](https://github.com/gfunk777)
 
 Built for SF Hacks 2026
