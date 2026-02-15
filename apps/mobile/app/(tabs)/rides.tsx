@@ -27,6 +27,12 @@ import { OfferRideModal } from "@/components/offer-ride-modal";
 import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
 import { getApiData } from "@/services/api";
 import {
+  getMockJoinedRideIds,
+  joinMockRide,
+  leaveMockRide,
+  subscribeToMockJoinedRides,
+} from "@/utils/mock-joined-rides";
+import {
   SCROLLER_PADDING,
   getDaysInMonth,
   getScrollOffsetY,
@@ -36,6 +42,7 @@ import {
 } from "@/utils/web-picker";
 
 type TabId = "offering" | "requesting";
+type RideOfferWithJoin = RideOffer & { joinedUserIds?: string[] };
 
 // Helper function to convert RideOffer to NearbyOfferingRide
 const convertRideOfferToNearby = (offer: RideOffer): NearbyOfferingRide => {
@@ -87,7 +94,9 @@ export default function RidesScreen() {
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [joinedRideIds, setJoinedRideIds] = useState<Set<string>>(new Set());
+  const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
+    getMockJoinedRideIds()
+  );
   const [editingRideId, setEditingRideId] = useState<string | null>(null);
   const [editDateTime, setEditDateTime] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -106,6 +115,10 @@ export default function RidesScreen() {
   // Fetch ride offers from backend on mount
   useEffect(() => {
     fetchRideOffers();
+  }, []);
+
+  useEffect(() => {
+    return subscribeToMockJoinedRides(setMockJoinedIds);
   }, []);
 
   // Refresh ride offers when screen is focused (e.g., after creating a ride on home screen)
@@ -275,33 +288,61 @@ export default function RidesScreen() {
     }
   };
 
-  const isJoinedRide = (rideId: string) => joinedRideIds.has(rideId);
-
-  const getAdjustedSeats = (baseSeats: number, rideId: string) => {
-    return Math.max(0, baseSeats - (isJoinedRide(rideId) ? 1 : 0));
+  const isJoinedRide = (offer: RideOfferWithJoin) => {
+    return offer.joinedUserIds?.includes(currentUserId) ?? false;
   };
 
-  const handleJoinRide = (rideId: string, availableSeats: number) => {
-    if (isJoinedRide(rideId)) {
+  const handleJoinRide = async (rideId: string, availableSeats: number) => {
+    if (availableSeats <= 0) {
+      alert("No seats available");
+      return;
+    }
+    try {
+      await getApiData<RideOffer>(`/api/v1/rides/offers/${rideId}/join`, {
+        method: "POST",
+        body: JSON.stringify({ userId: currentUserId }),
+      });
+
+      await fetchRideOffers();
+    } catch (error) {
+      console.error("Error joining ride:", error);
+      alert("Failed to join ride");
+    }
+  };
+
+  const handleLeaveRide = async (rideId: string) => {
+    try {
+      await getApiData<RideOffer>(`/api/v1/rides/offers/${rideId}/leave`, {
+        method: "POST",
+        body: JSON.stringify({ userId: currentUserId }),
+      });
+
+      await fetchRideOffers();
+    } catch (error) {
+      console.error("Error leaving ride:", error);
+      alert("Failed to leave ride");
+    }
+  };
+
+  const isMockJoined = (rideId: string) => mockJoinedIds.has(rideId);
+
+  const getMockSeats = (baseSeats: number, rideId: string) => {
+    return Math.max(0, baseSeats - (isMockJoined(rideId) ? 1 : 0));
+  };
+
+  const handleMockJoin = (rideId: string, availableSeats: number) => {
+    if (isMockJoined(rideId)) {
       return;
     }
     if (availableSeats <= 0) {
       alert("No seats available");
       return;
     }
-    setJoinedRideIds((prev) => {
-      const next = new Set(prev);
-      next.add(rideId);
-      return next;
-    });
+    joinMockRide(rideId);
   };
 
-  const handleLeaveRide = (rideId: string) => {
-    setJoinedRideIds((prev) => {
-      const next = new Set(prev);
-      next.delete(rideId);
-      return next;
-    });
+  const handleMockLeave = (rideId: string) => {
+    leaveMockRide(rideId);
   };
 
   return (
@@ -429,10 +470,8 @@ export default function RidesScreen() {
                   {rideOffers.map((offer) => {
                     const rideKey = offer._id?.toString() || "";
                     const isOwner = offer.userId === currentUserId;
-                    const availableSeats = getAdjustedSeats(
-                      offer.availableSeats,
-                      rideKey
-                    );
+                    const availableSeats = offer.availableSeats;
+                    const joined = isJoinedRide(offer);
                     return (
                       <OfferingCard
                         key={`backend-${rideKey}`}
@@ -441,9 +480,9 @@ export default function RidesScreen() {
                           availableSeats,
                         })}
                         rideId={rideKey}
-                        isJoined={isJoinedRide(rideKey)}
-                        onJoin={() => handleJoinRide(rideKey, availableSeats)}
-                        onLeave={() => handleLeaveRide(rideKey)}
+                        isJoined={joined}
+                        onJoin={!isOwner ? () => handleJoinRide(rideKey, availableSeats) : undefined}
+                        onLeave={!isOwner ? () => handleLeaveRide(rideKey) : undefined}
                         onDelete={
                           isOwner
                             ? () => handleDeleteRide(rideKey)
@@ -468,7 +507,7 @@ export default function RidesScreen() {
                   {/* Display mock ride offers */}
                   {mockNearbyOfferings.map((ride) => {
                     const rideKey = `mock-${ride.id}`;
-                    const availableSeats = getAdjustedSeats(
+                    const availableSeats = getMockSeats(
                       ride.availableSeats,
                       rideKey
                     );
@@ -476,9 +515,9 @@ export default function RidesScreen() {
                       <OfferingCard
                         key={rideKey}
                         ride={{ ...ride, availableSeats }}
-                        isJoined={isJoinedRide(rideKey)}
-                        onJoin={() => handleJoinRide(rideKey, availableSeats)}
-                        onLeave={() => handleLeaveRide(rideKey)}
+                        isJoined={isMockJoined(rideKey)}
+                        onJoin={() => handleMockJoin(rideKey, availableSeats)}
+                        onLeave={() => handleMockLeave(rideKey)}
                       />
                     );
                   })}
@@ -916,7 +955,7 @@ function OfferingCard({
               </TouchableOpacity>
             )}
           </View>
-        ) : (
+        ) : (onJoin || onLeave) ? (
           <TouchableOpacity
             onPress={isJoined ? handleLeave : handleJoin}
             style={[
@@ -930,7 +969,7 @@ function OfferingCard({
               {isJoined ? "Leave" : "Join"}
             </Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
       <View style={styles.rideRoute}>
         <View style={styles.routePoint}>

@@ -24,11 +24,12 @@ const broadcastRideUpdate = (rideOffer: unknown): void => {
 export const rideOfferController = {
   async getAllRideOffers(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { status, userId } = req.query;
+      const { status, userId, joinedBy } = req.query;
       
       const filter: Record<string, unknown> = {};
       if (status) filter.status = status;
       if (userId) filter.userId = userId;
+      if (joinedBy) filter.joinedUserIds = joinedBy;
       
       const rideOffers = await RideOfferModel.find(filter)
         .sort({ dateTime: 1 })
@@ -169,6 +170,88 @@ export const rideOfferController = {
         message: 'Ride offer deleted successfully',
       };
       
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async joinRideOffer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { userId } = req.body;
+
+      const rideOffer = await RideOfferModel.findOneAndUpdate(
+        {
+          _id: id,
+          userId: { $ne: userId },
+          availableSeats: { $gt: 0 },
+          joinedUserIds: { $ne: userId },
+        },
+        {
+          $addToSet: { joinedUserIds: userId },
+          $inc: { availableSeats: -1 },
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!rideOffer) {
+        const response: ApiResponse<null> = {
+          success: false,
+          error: 'Unable to join ride offer',
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      broadcastRideUpdate(rideOffer);
+
+      const response: ApiResponse<typeof rideOffer> = {
+        success: true,
+        data: rideOffer,
+        message: 'Joined ride offer successfully',
+      };
+
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async leaveRideOffer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { userId } = req.body;
+
+      const rideOffer = await RideOfferModel.findOneAndUpdate(
+        {
+          _id: id,
+          joinedUserIds: userId,
+        },
+        {
+          $pull: { joinedUserIds: userId },
+          $inc: { availableSeats: 1 },
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!rideOffer) {
+        const response: ApiResponse<null> = {
+          success: false,
+          error: 'Unable to leave ride offer',
+        };
+        res.status(400).json(response);
+        return;
+      }
+
+      broadcastRideUpdate(rideOffer);
+
+      const response: ApiResponse<typeof rideOffer> = {
+        success: true,
+        data: rideOffer,
+        message: 'Left ride offer successfully',
+      };
+
       res.json(response);
     } catch (error) {
       next(error);

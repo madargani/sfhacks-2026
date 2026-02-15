@@ -26,6 +26,7 @@ export interface RideOffer {
   toLocation: Location;
   dateTime: Date;
   availableSeats: number;
+  joinedUserIds?: string[];
   notes?: string;
   status: RideStatus;
   createdAt?: Date;

@@ -1,14 +1,124 @@
-import { useState, useEffect } from "react";
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, Platform } from "react-native";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  SafeAreaView,
+  StatusBar,
+  Platform,
+} from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { mockRides, mockCarbonSaved, type UpcomingRide } from "@/data/mock/rides";
+import { mockCarbonSaved } from "@/data/mock/rides";
+import { mockNearbyOfferings } from "@/data/mock/nearby-rides";
 import { brandColors } from "@/constants/theme";
 import { OfferRideModal } from "@/components/offer-ride-modal";
-import { CreateRideOffer } from "@evergreen/shared-types";
+import { CreateRideOffer, RideOffer } from "@evergreen/shared-types";
+import { getApiData } from "@/services/api";
+import {
+  getMockJoinedRideIds,
+  subscribeToMockJoinedRides,
+} from "@/utils/mock-joined-rides";
+
+type MyRide = {
+  id: string;
+  type: "offering" | "joined";
+  from: string;
+  to: string;
+  dateTime: string;
+  driverName?: string;
+  availableSeats: number;
+  totalSeats: 5 | 6 | 7 | 8;
+};
+
+type RideOfferWithJoin = RideOffer & { joinedUserIds?: string[] };
 
 export default function HomeScreen() {
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [mockJoinedIds, setMockJoinedIds] = useState<Set<string>>(
+    getMockJoinedRideIds()
+  );
+  const currentUserId = "current-user-id";
+
+  const fetchRideOffers = async () => {
+    try {
+      setIsLoading(true);
+      const offers = await getApiData<RideOffer[]>("/api/v1/rides/offers");
+      setRideOffers(offers);
+    } catch (error) {
+      console.error("Error fetching ride offers:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRideOffers();
+  }, []);
+
+  useEffect(() => {
+    return subscribeToMockJoinedRides(setMockJoinedIds);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchRideOffers();
+    }, [])
+  );
+
+  const myRides = useMemo(() => {
+    const backendRides = (rideOffers as RideOfferWithJoin[])
+      .filter((offer) => {
+        const rideId = offer._id?.toString() || "";
+        return (
+          offer.userId === currentUserId ||
+          offer.joinedUserIds?.includes(currentUserId)
+        );
+      })
+      .map((offer) => {
+        const rideId = offer._id?.toString() || "";
+        const isOffering = offer.userId === currentUserId;
+        const departureDate = new Date(offer.dateTime);
+        const dateTime = departureDate.toLocaleString("en-US", {
+          weekday: "short",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        return {
+          id: rideId,
+          type: isOffering ? "offering" : "joined",
+          from: offer.fromLocation.address,
+          to: offer.toLocation.address,
+          dateTime,
+          driverName: isOffering ? "You" : "Driver",
+          availableSeats: offer.availableSeats,
+          totalSeats: Math.max(5, offer.availableSeats + 1) as 5 | 6 | 7 | 8,
+        } as MyRide;
+      });
+
+    const mockJoinedRides = mockNearbyOfferings
+      .filter((ride) => mockJoinedIds.has(`mock-${ride.id}`))
+      .map((ride) => {
+        const availableSeats = Math.max(0, ride.availableSeats - 1);
+        return {
+          id: `mock-${ride.id}`,
+          type: "joined",
+          from: ride.origin ?? "—",
+          to: ride.destination,
+          dateTime: ride.departureTime,
+          driverName: ride.driverName,
+          availableSeats,
+          totalSeats: ride.totalSeats,
+        } as MyRide;
+      });
+
+    return [...backendRides, ...mockJoinedRides];
+  }, [rideOffers, mockJoinedIds]);
 
   const handleCreateRideOffer = async (rideOffer: CreateRideOffer) => {
     try {
@@ -60,20 +170,24 @@ export default function HomeScreen() {
           </View>
 
           {/* Section Title - Fixed */}
-          <Text style={styles.sectionTitle}>Upcoming Rides</Text>
+          <Text style={styles.sectionTitle}>My Rides</Text>
         </View>
 
         {/* Scrollable Rides Section */}
         <ScrollView style={styles.ridesScrollView} contentContainerStyle={styles.ridesScrollContent}>
           <View style={styles.ridesSection}>
-            {mockRides.length === 0 ? (
+            {isLoading ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No upcoming rides</Text>
-                <Text style={styles.emptySubtext}>Offer or request a ride to get started!</Text>
+                <Text style={styles.emptyText}>Loading rides...</Text>
+              </View>
+            ) : myRides.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>No rides yet</Text>
+                <Text style={styles.emptySubtext}>Offer or join a ride to get started!</Text>
               </View>
             ) : (
               <View style={styles.ridesList}>
-                {mockRides.map((ride) => (
+                {myRides.map((ride) => (
                   <RideCard key={ride.id} ride={ride} />
                 ))}
               </View>
@@ -115,12 +229,62 @@ export default function HomeScreen() {
   );
 }
 
-function RideCard({ ride }: { ride: UpcomingRide }) {
+const SEAT_LAYOUTS: Record<5 | 6 | 7 | 8, number[]> = {
+  5: [2, 3],
+  6: [2, 2, 2],
+  7: [2, 3, 2],
+  8: [2, 3, 3],
+};
+
+function SeatOverview({
+  totalSeats,
+  availableSeats,
+}: {
+  totalSeats: 5 | 6 | 7 | 8;
+  availableSeats: number;
+}) {
+  const rows = SEAT_LAYOUTS[totalSeats];
+  const takenCount = totalSeats - availableSeats - 1;
+  let seatIndex = 0;
+  const seatStatus: boolean[] = [];
+  seatStatus[0] = false;
+  for (let i = 0; i < totalSeats - 1; i++) {
+    seatStatus.push(i >= takenCount);
+  }
+
+  let idx = 0;
+  return (
+    <View style={styles.seatOverview}>
+      {rows.map((seatsInRow, rowIdx) => (
+        <View
+          key={rowIdx}
+          style={[styles.seatRow, rowIdx === 0 && styles.seatRowFront]}
+        >
+          {Array.from({ length: seatsInRow }).map((_, colIdx) => {
+            const isAvailable = seatStatus[idx];
+            idx++;
+            return (
+              <View
+                key={colIdx}
+                style={[
+                  styles.seat,
+                  isAvailable ? styles.seatAvailable : styles.seatTaken,
+                ]}
+              />
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function RideCard({ ride }: { ride: MyRide }) {
   return (
     <View style={styles.rideCard}>
       <View style={styles.rideHeader}>
         <Text style={styles.rideType}>
-          {ride.type === 'offering' ? '🚗 Offering' : '👋 Requesting'}
+          {ride.type === "offering" ? "🚗 Offering" : "✅ Joined"}
         </Text>
         <Text style={styles.rideTime}>{ride.dateTime}</Text>
       </View>
@@ -140,7 +304,15 @@ function RideCard({ ride }: { ride: UpcomingRide }) {
       {ride.driverName && (
         <Text style={styles.driverText}>Driver: {ride.driverName}</Text>
       )}
-      <Text style={styles.passengersText}>{ride.passengers} passenger{ride.passengers > 1 ? 's' : ''}</Text>
+      <View style={styles.seatsRow}>
+        <Text style={styles.seatsLabel}>
+          {ride.availableSeats} seat{ride.availableSeats === 1 ? "" : "s"} available
+        </Text>
+        <SeatOverview
+          totalSeats={ride.totalSeats}
+          availableSeats={ride.availableSeats}
+        />
+      </View>
     </View>
   );
 }
@@ -257,10 +429,37 @@ const styles = StyleSheet.create({
     color: brandColors.dark,
     marginTop: 8,
   },
-  passengersText: {
+  seatsRow: {
+    marginTop: 8,
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  seatsLabel: {
     fontSize: 13,
     color: brandColors.dark,
-    marginTop: 4,
+  },
+  seatOverview: {
+    alignSelf: "center",
+  },
+  seatRow: {
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  seatRowFront: {
+    marginBottom: 6,
+  },
+  seat: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+  },
+  seatAvailable: {
+    backgroundColor: brandColors.primary,
+  },
+  seatTaken: {
+    backgroundColor: brandColors.beige,
   },
   emptyState: {
     alignItems: "center",

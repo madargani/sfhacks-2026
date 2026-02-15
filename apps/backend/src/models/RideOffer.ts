@@ -51,6 +51,11 @@ const RideOfferSchema = new Schema<RideOfferDocument>(
       min: [1, 'Minimum 1 seat required'],
       max: [10, 'Maximum 10 seats allowed'],
     },
+    joinedUserIds: {
+      type: [String],
+      default: [],
+      index: true,
+    },
     notes: {
       type: String,
       maxlength: [500, 'Notes cannot exceed 500 characters'],

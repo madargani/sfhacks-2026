@@ -20,6 +20,20 @@ router.put(
   rideOfferController.updateRideOffer
 );
 
+router.post(
+  '/:id/join',
+  validateObjectId,
+  validateRequiredFields(['userId']),
+  rideOfferController.joinRideOffer
+);
+
+router.post(
+  '/:id/leave',
+  validateObjectId,
+  validateRequiredFields(['userId']),
+  rideOfferController.leaveRideOffer
+);
+
 router.delete('/:id', validateObjectId, rideOfferController.deleteRideOffer);
 
 export default router;
