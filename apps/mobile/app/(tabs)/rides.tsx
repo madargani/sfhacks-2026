@@ -87,6 +87,7 @@ export default function RidesScreen() {
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [rideOffers, setRideOffers] = useState<RideOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [joinedRideIds, setJoinedRideIds] = useState<Set<string>>(new Set());
   const [editingRideId, setEditingRideId] = useState<string | null>(null);
   const [editDateTime, setEditDateTime] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -100,6 +101,7 @@ export default function RidesScreen() {
   const webHourScrollRef = useRef<ScrollViewType>(null);
   const webMinuteScrollRef = useRef<ScrollViewType>(null);
   const { schedule } = useRafScrollScheduler();
+  const currentUserId = "current-user-id";
 
   // Fetch ride offers from backend on mount
   useEffect(() => {
@@ -273,6 +275,35 @@ export default function RidesScreen() {
     }
   };
 
+  const isJoinedRide = (rideId: string) => joinedRideIds.has(rideId);
+
+  const getAdjustedSeats = (baseSeats: number, rideId: string) => {
+    return Math.max(0, baseSeats - (isJoinedRide(rideId) ? 1 : 0));
+  };
+
+  const handleJoinRide = (rideId: string, availableSeats: number) => {
+    if (isJoinedRide(rideId)) {
+      return;
+    }
+    if (availableSeats <= 0) {
+      alert("No seats available");
+      return;
+    }
+    setJoinedRideIds((prev) => {
+      const next = new Set(prev);
+      next.add(rideId);
+      return next;
+    });
+  };
+
+  const handleLeaveRide = (rideId: string) => {
+    setJoinedRideIds((prev) => {
+      const next = new Set(prev);
+      next.delete(rideId);
+      return next;
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -395,27 +426,62 @@ export default function RidesScreen() {
               ) : (
                 <View style={styles.list}>
                   {/* Display backend ride offers */}
-                  {rideOffers.map((offer) => (
-                    <OfferingCard
-                      key={`backend-${offer._id?.toString()}`}
-                      ride={convertRideOfferToNearby(offer)}
-                      rideId={offer._id?.toString()}
-                      onDelete={() => handleDeleteRide(offer._id?.toString() || '')}
-                      onEdit={() => {
-                        const nextDate = new Date(offer.dateTime);
-                        setEditingRideId(offer._id?.toString() || '');
-                        setEditDateTime(nextDate);
-                        if (Platform.OS === "web") {
-                          syncWebPartsFromDate(nextDate);
+                  {rideOffers.map((offer) => {
+                    const rideKey = offer._id?.toString() || "";
+                    const isOwner = offer.userId === currentUserId;
+                    const availableSeats = getAdjustedSeats(
+                      offer.availableSeats,
+                      rideKey
+                    );
+                    return (
+                      <OfferingCard
+                        key={`backend-${rideKey}`}
+                        ride={convertRideOfferToNearby({
+                          ...offer,
+                          availableSeats,
+                        })}
+                        rideId={rideKey}
+                        isJoined={isJoinedRide(rideKey)}
+                        onJoin={() => handleJoinRide(rideKey, availableSeats)}
+                        onLeave={() => handleLeaveRide(rideKey)}
+                        onDelete={
+                          isOwner
+                            ? () => handleDeleteRide(rideKey)
+                            : undefined
                         }
-                        setShowDatePicker(true);
-                      }}
-                    />
-                  ))}
+                        onEdit={
+                          isOwner
+                            ? () => {
+                                const nextDate = new Date(offer.dateTime);
+                                setEditingRideId(rideKey);
+                                setEditDateTime(nextDate);
+                                if (Platform.OS === "web") {
+                                  syncWebPartsFromDate(nextDate);
+                                }
+                                setShowDatePicker(true);
+                              }
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
                   {/* Display mock ride offers */}
-                  {mockNearbyOfferings.map((ride) => (
-                    <OfferingCard key={`mock-${ride.id}`} ride={ride} />
-                  ))}
+                  {mockNearbyOfferings.map((ride) => {
+                    const rideKey = `mock-${ride.id}`;
+                    const availableSeats = getAdjustedSeats(
+                      ride.availableSeats,
+                      rideKey
+                    );
+                    return (
+                      <OfferingCard
+                        key={rideKey}
+                        ride={{ ...ride, availableSeats }}
+                        isJoined={isJoinedRide(rideKey)}
+                        onJoin={() => handleJoinRide(rideKey, availableSeats)}
+                        onLeave={() => handleLeaveRide(rideKey)}
+                      />
+                    );
+                  })}
                 </View>
               )}
             </View>
@@ -810,19 +876,28 @@ function OfferingCard({
   rideId, 
   onDelete,
   onEdit,
+  onJoin,
+  onLeave,
+  isJoined,
 }: { 
   ride: NearbyOfferingRide;
   rideId?: string;
   onDelete?: () => void;
   onEdit?: () => void;
+  onJoin?: () => void;
+  onLeave?: () => void;
+  isJoined?: boolean;
 }) {
-  const isBackendRide = !!rideId;
+  const isOwnerRide = !!onEdit || !!onDelete;
+  const canJoin = ride.availableSeats > 0;
+  const handleJoin = onJoin ?? (() => alert("Joined ride"));
+  const handleLeave = onLeave ?? (() => alert("Left ride"));
 
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.milesAway}>{ride.milesAway} mi away</Text>
-        {isBackendRide && (
+        {isOwnerRide ? (
           <View style={styles.cardHeaderButtons}>
             {onEdit && (
               <TouchableOpacity 
@@ -841,6 +916,20 @@ function OfferingCard({
               </TouchableOpacity>
             )}
           </View>
+        ) : (
+          <TouchableOpacity
+            onPress={isJoined ? handleLeave : handleJoin}
+            style={[
+              styles.joinButton,
+              isJoined && styles.leaveButton,
+              !isJoined && !canJoin && styles.joinButtonDisabled,
+            ]}
+            disabled={!isJoined && !canJoin}
+          >
+            <Text style={styles.joinButtonText}>
+              {isJoined ? "Leave" : "Join"}
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
       <View style={styles.rideRoute}>
@@ -1051,6 +1140,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: brandColors.primary,
     fontWeight: "bold",
+  },
+  joinButton: {
+    backgroundColor: brandColors.primary,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  joinButtonDisabled: {
+    backgroundColor: brandColors.beige,
+  },
+  leaveButton: {
+    backgroundColor: brandColors.dark,
+  },
+  joinButtonText: {
+    color: brandColors.white,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   cardFooter: {
     alignItems: "flex-end",
